@@ -83,6 +83,14 @@ class ServiceSettings(BaseSettings):
         False,
         alias="RAG_OPS_WARM_DEPENDENCIES_ON_STARTUP",
     )
+    default_workspace_slug: str = Field(
+        "personal",
+        alias="RAG_OPS_DEFAULT_WORKSPACE_SLUG",
+    )
+    default_workspace_name: str = Field(
+        "Personal Workspace",
+        alias="RAG_OPS_DEFAULT_WORKSPACE_NAME",
+    )
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

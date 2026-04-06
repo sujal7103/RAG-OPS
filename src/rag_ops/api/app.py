@@ -10,7 +10,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from rag_ops.api.middleware import RequestContextMiddleware, TimeoutMiddleware
+from rag_ops.api.routes.platform import router as platform_router
 from rag_ops.api.routes.system import router as system_router
+from rag_ops.db.bootstrap import initialize_database
+from rag_ops.db.session import get_session_factory
 from rag_ops.observability import configure_logging
 from rag_ops.redis_client import RedisClient
 from rag_ops.services.runtime import warm_runtime
@@ -26,6 +29,8 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        initialize_database(active_settings)
+        app.state.session_factory = get_session_factory(active_settings)
         logger.info("Starting %s API in %s mode", active_settings.app_name, active_settings.environment)
         warm_result = await warm_runtime(active_settings)
         app.state.startup_state["warm_status"] = warm_result["status"]
@@ -42,6 +47,7 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
     )
     app.state.settings = active_settings
     app.state.redis_client = RedisClient(active_settings)
+    app.state.session_factory = get_session_factory(active_settings)
     app.state.startup_state = {
         "warm_status": "skipped",
         "warm_detail": "startup warm-up not executed",
@@ -55,6 +61,7 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
         allow_headers=["*"],
     )
     app.include_router(system_router)
+    app.include_router(platform_router)
     return app
 
 

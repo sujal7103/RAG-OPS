@@ -136,6 +136,7 @@ docker compose up --build
 ```
 
 The platform stack expects a local `.env` file for infrastructure credentials such as Postgres and MinIO.
+The persistence layer now stores datasets, benchmark configs, and run metadata in SQLAlchemy-backed tables, with Alembic scaffolding ready for managed migrations.
 
 ---
 
@@ -177,6 +178,8 @@ The platform stack expects a local `.env` file for infrastructure credentials su
 ```
 rag-ops/
 ├── app.py                          # Thin Streamlit entrypoint
+├── alembic/                        # Migration scaffold for service schema
+├── alembic.ini                     # Alembic configuration
 ├── docker-compose.yml              # Local multi-service platform topology
 ├── pyproject.toml                  # Package config, scripts, and test settings
 ├── Dockerfile                      # Containerized runtime
@@ -188,6 +191,7 @@ rag-ops/
 │   ├── models.py                   # Typed dataclasses
 │   ├── observability.py            # Request IDs and structured logging
 │   ├── redis_client.py             # Thin Redis wrapper
+│   ├── repositories/               # Persistence repositories
 │   ├── cache.py                    # Disk caching helpers
 │   ├── experiment_store.py         # Saved run artifacts
 │   ├── chunkers.py                 # 4 chunking strategies

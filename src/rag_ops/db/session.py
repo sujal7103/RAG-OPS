@@ -50,3 +50,8 @@ async def ping_database(settings: ServiceSettings | None = None) -> bool:
         return True
 
     return await asyncio.to_thread(_ping)
+
+
+def reset_engine_cache() -> None:
+    """Reset cached SQLAlchemy engines between tests."""
+    get_engine.cache_clear()
