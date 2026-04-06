@@ -34,6 +34,7 @@ htmlcov/
 .env
 .env.*
 *.env
+!.env.example
 
 # macOS
 .DS_Store
@@ -57,3 +58,4 @@ htmlcov/
 src/*.egg-info/
 .rag_ops_cache/
 .rag_ops_runs/
+.rag_ops/

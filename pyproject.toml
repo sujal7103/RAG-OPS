@@ -23,6 +23,11 @@ dependencies = [
     "plotly>=5.18",
     "pandas>=2.0",
     "numpy>=1.24",
+    "fastapi>=0.110",
+    "uvicorn>=0.30",
+    "pydantic-settings>=2.2",
+    "sqlalchemy>=2.0",
+    "redis>=5.0",
     "faiss-cpu>=1.7",
     "rank-bm25>=0.2",
     "sentence-transformers>=2.2",
@@ -35,6 +40,8 @@ dependencies = [
 
 [project.scripts]
 rag-ops = "rag_ops.cli:main"
+rag-ops-api = "rag_ops.api.app:main"
+rag-ops-worker = "rag_ops.workers.main:main"
 
 [project.optional-dependencies]
 dev = ["pytest>=7.4", "pytest-cov", "ruff"]

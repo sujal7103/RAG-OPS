@@ -115,6 +115,28 @@ rag-ops \
 
 By default, cached chunks and embeddings are stored in `.rag_ops_cache/`, and saved run artifacts are written to `.rag_ops_runs/`.
 
+### 6. Run the service foundation
+
+RAG-OPS now also includes a service-platform foundation for the upcoming API-first architecture:
+
+```bash
+rag-ops-api
+```
+
+and a worker scaffold:
+
+```bash
+rag-ops-worker
+```
+
+For local multi-service development:
+
+```bash
+docker compose up --build
+```
+
+The platform stack expects a local `.env` file for infrastructure credentials such as Postgres and MinIO.
+
 ---
 
 ## Using your own data
@@ -155,12 +177,17 @@ By default, cached chunks and embeddings are stored in `.rag_ops_cache/`, and sa
 ```
 rag-ops/
 ├── app.py                          # Thin Streamlit entrypoint
+├── docker-compose.yml              # Local multi-service platform topology
 ├── pyproject.toml                  # Package config, scripts, and test settings
 ├── Dockerfile                      # Containerized runtime
 ├── src/rag_ops/
+│   ├── api/                        # FastAPI application and middleware
 │   ├── cli.py                      # CLI benchmark entrypoint
 │   ├── data_loading.py             # Sample, uploaded, and local file loading
+│   ├── db/                         # SQLAlchemy engine and persistence helpers
 │   ├── models.py                   # Typed dataclasses
+│   ├── observability.py            # Request IDs and structured logging
+│   ├── redis_client.py             # Thin Redis wrapper
 │   ├── cache.py                    # Disk caching helpers
 │   ├── experiment_store.py         # Saved run artifacts
 │   ├── chunkers.py                 # 4 chunking strategies
@@ -168,8 +195,10 @@ rag-ops/
 │   ├── retrievers.py               # 3 retrieval methods
 │   ├── metrics.py                  # 6 evaluation metrics
 │   ├── runner.py                   # Benchmark orchestration
+│   ├── services/                   # Platform service helpers
 │   ├── validation.py               # Input and config validation
 │   ├── ui/                         # Streamlit UI modules
+│   ├── workers/                    # Async worker entrypoints
 │   │   ├── app.py                  # Main UI orchestration
 │   │   ├── sidebar.py              # Sidebar config controls
 │   │   ├── data_views.py           # Data loading and preview
