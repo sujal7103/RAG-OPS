@@ -6,8 +6,48 @@ import os
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import ConfigDict, Field
+
+try:
+    from pydantic_settings import BaseSettings, SettingsConfigDict
+except ModuleNotFoundError:
+    from pydantic import BaseModel
+
+    def _parse_env_file(path_value: str) -> dict[str, str]:
+        path = Path(path_value)
+        if not path.exists():
+            return {}
+
+        parsed: dict[str, str] = {}
+        for raw_line in path.read_text().splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            parsed[key.strip()] = value.strip().strip('"').strip("'")
+        return parsed
+
+    class BaseSettings(BaseModel):
+        """Lightweight fallback when pydantic-settings is unavailable."""
+
+        model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+        def __init__(self, **data):
+            config = getattr(self.__class__, "model_config", {})
+            env_file = config.get("env_file") if isinstance(config, dict) else None
+
+            merged: dict[str, str | object] = {}
+            if env_file:
+                merged.update(_parse_env_file(str(env_file)))
+            merged.update(os.environ)
+            merged.update(data)
+            super().__init__(**merged)
+
+    def SettingsConfigDict(**kwargs):
+        """Fallback SettingsConfigDict shim backed by pydantic ConfigDict."""
+        defaults = {"populate_by_name": True}
+        defaults.update(kwargs)
+        return ConfigDict(**defaults)
 
 
 def get_env_api_key(name: str) -> str:
