@@ -143,10 +143,13 @@ class BenchmarkRunModel(Base):
     dataset_version_id: Mapped[str] = mapped_column(ForeignKey("dataset_versions.id"), index=True)
     benchmark_config_id: Mapped[str] = mapped_column(ForeignKey("benchmark_configs.id"), index=True)
     status: Mapped[str] = mapped_column(String(32), default="queued", index=True)
+    latest_stage: Mapped[str] = mapped_column(String(255), default="queued")
+    latest_progress_pct: Mapped[int] = mapped_column(Integer, default=0)
     error_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancel_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     workspace: Mapped[WorkspaceModel] = relationship(back_populates="runs")
     dataset_version: Mapped[DatasetVersionModel] = relationship(back_populates="runs")

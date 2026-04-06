@@ -18,6 +18,7 @@ def _build_settings(tmp_path: Path, **overrides) -> ServiceSettings:
         "RAG_OPS_DATABASE_AUTO_CREATE": "true",
         "RAG_OPS_REDIS_ENABLED": "false",
         "RAG_OPS_ENV": "test",
+        "RAG_OPS_QUEUE_BACKEND": "disabled",
         "RAG_OPS_DEFAULT_WORKSPACE_SLUG": "test-workspace",
         "RAG_OPS_DEFAULT_WORKSPACE_NAME": "Test Workspace",
     }
@@ -98,6 +99,7 @@ def test_dataset_config_and_run_flow(tmp_path: Path):
         run_payload = run_response.json()
         run_id = run_payload["id"]
         assert run_payload["status"] == "queued"
+        assert run_payload["queue_backend"] == "disabled"
 
         listed_runs = client.get("/v1/runs")
         assert listed_runs.status_code == 200

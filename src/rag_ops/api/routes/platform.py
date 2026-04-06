@@ -6,8 +6,15 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from rag_ops.api.dependencies import get_platform_repository
-from rag_ops.models import BenchmarkConfig, normalize_documents, normalize_ground_truth, normalize_queries
+from rag_ops.models import (
+    BenchmarkConfig,
+    normalize_documents,
+    normalize_ground_truth,
+    normalize_queries,
+)
 from rag_ops.repositories.platform import PlatformRepository
+from rag_ops.services.benchmark_runs import enqueue_benchmark_run
+from rag_ops.services.run_state import RunStateStore
 from rag_ops.validation import (
     ValidationError,
     validate_benchmark_configuration,
@@ -57,6 +64,20 @@ class RunCreateRequest(BaseModel):
 
     dataset_version_id: str
     benchmark_config_id: str
+
+
+def _attach_live_progress(
+    run_payload: dict[str, object],
+    settings,
+) -> dict[str, object]:
+    state_store = RunStateStore(settings)
+    live = state_store.get_progress(str(run_payload["id"]))
+    if not live:
+        return run_payload
+    merged = dict(run_payload)
+    merged["latest_progress_pct"] = live.get("progress_pct", run_payload["latest_progress_pct"])
+    merged["latest_stage"] = live.get("stage", run_payload["latest_stage"])
+    return merged
 
 
 @router.get("/datasets")
@@ -146,17 +167,20 @@ def get_config(config_id: str, repo: PlatformRepository = Depends(get_platform_r
 @router.get("/runs")
 def list_runs(repo: PlatformRepository = Depends(get_platform_repository)):
     """List benchmark runs."""
-    return {"items": repo.list_runs()}
+    return {"items": [_attach_live_progress(item, repo.settings) for item in repo.list_runs()]}
 
 
 @router.post("/runs", status_code=status.HTTP_201_CREATED)
 def create_run(payload: RunCreateRequest, repo: PlatformRepository = Depends(get_platform_repository)):
     """Create a queued benchmark run."""
     try:
-        return repo.create_run(
+        run_payload = repo.create_run(
             dataset_version_id=payload.dataset_version_id,
             benchmark_config_id=payload.benchmark_config_id,
         )
+        queue_backend = enqueue_benchmark_run(str(run_payload["id"]), repo.settings)
+        run_payload["queue_backend"] = queue_backend
+        return run_payload
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -165,6 +189,18 @@ def create_run(payload: RunCreateRequest, repo: PlatformRepository = Depends(get
 def get_run(run_id: str, repo: PlatformRepository = Depends(get_platform_repository)):
     """Return one benchmark run."""
     try:
-        return repo.get_run(run_id)
+        return _attach_live_progress(repo.get_run(run_id), repo.settings)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/runs/{run_id}/cancel")
+def cancel_run(run_id: str, repo: PlatformRepository = Depends(get_platform_repository)):
+    """Request cancellation for a queued or running benchmark run."""
+    try:
+        run_payload = repo.request_cancel(run_id)
+        state_store = RunStateStore(repo.settings)
+        state_store.request_cancel(run_id)
+        return _attach_live_progress(run_payload, repo.settings)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

@@ -36,6 +36,15 @@ from rag_ops.validation import (
 )
 
 
+class BenchmarkCancelledError(RuntimeError):
+    """Raised when a benchmark run is cancelled mid-flight."""
+
+
+def _raise_if_cancelled(cancel_callback: Callable[[], bool] | None) -> None:
+    if cancel_callback and cancel_callback():
+        raise BenchmarkCancelledError("Benchmark run was cancelled.")
+
+
 def _chunk_stats(chunks: Sequence[Mapping[str, Any]]) -> tuple[int, float]:
     if not chunks:
         return 0, 0.0
@@ -94,6 +103,8 @@ def run_benchmark(
     persist_run_artifacts: bool = False,
     runs_dir: str | None = None,
     artifact_callback: Callable[[Any], None] | None = None,
+    cancel_callback: Callable[[], bool] | None = None,
+    run_id: str | None = None,
 ):
     """Run the full benchmark across all combinations."""
     api_keys = api_keys or {}
@@ -128,6 +139,7 @@ def run_benchmark(
             progress_callback(min(pct, 99), message)
 
     for chunker_name in chunker_names:
+        _raise_if_cancelled(cancel_callback)
         report(f"Chunking documents with {chunker_name}...")
 
         chunks = (
@@ -160,6 +172,7 @@ def run_benchmark(
         chunk_texts = [chunk["text"] for chunk in chunks]
 
         for embedder_name in embedder_names:
+            _raise_if_cancelled(cancel_callback)
             report(f"Preparing corpus embeddings with {embedder_name}...")
 
             corpus_embeddings = (
@@ -203,6 +216,7 @@ def run_benchmark(
             retriever_resources = prepare_retriever_resources(retriever_names, corpus_embeddings, chunks)
 
             for retriever_name in retriever_names:
+                _raise_if_cancelled(cancel_callback)
                 report(f"Retrieving with {retriever_name} ({chunker_name} + {embedder_name})...")
                 label = f"{chunker_name} + {embedder_name} + {retriever_name}"
                 query_metrics: list[dict[str, float]] = []
@@ -211,6 +225,7 @@ def run_benchmark(
 
                 try:
                     for query in typed_queries:
+                        _raise_if_cancelled(cancel_callback)
                         relevant = normalized_ground_truth.get(query.query_id, set())
 
                         if query.query_id not in query_embedding_cache:
@@ -257,6 +272,8 @@ def run_benchmark(
                                 "mrr": scores["mrr"],
                             }
                         )
+                except BenchmarkCancelledError:
+                    raise
                 except Exception as exc:
                     results.append(
                         _finalize_row(
@@ -296,7 +313,7 @@ def run_benchmark(
         result_frame = result_frame.sort_values("recall@k", ascending=False).reset_index(drop=True)
 
     if persist_run_artifacts and results:
-        run_id = f"run_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
+        run_id = run_id or f"run_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}"
         artifact = persist_benchmark_run(
             results_rows=results,
             per_query_results=per_query_results,

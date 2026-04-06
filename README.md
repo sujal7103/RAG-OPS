@@ -137,6 +137,7 @@ docker compose up --build
 
 The platform stack expects a local `.env` file for infrastructure credentials such as Postgres and MinIO.
 The persistence layer now stores datasets, benchmark configs, and run metadata in SQLAlchemy-backed tables, with Alembic scaffolding ready for managed migrations.
+Async run execution now supports queued benchmark runs, progress tracking, and cancellation through the service API, with a local thread fallback and a Dramatiq path for hosted environments.
 
 ---
 

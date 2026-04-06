@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Sequence
 
 from sqlalchemy import select
@@ -20,7 +20,7 @@ from rag_ops.db.models import (
     DatasetVersionModel,
     WorkspaceModel,
 )
-from rag_ops.models import Document, Query
+from rag_ops.models import Document, Query, normalize_documents, normalize_ground_truth, normalize_queries
 from rag_ops.settings import ServiceSettings
 
 
@@ -211,8 +211,127 @@ class PlatformRepository:
             dataset_version_id=dataset_version.id,
             benchmark_config_id=config.id,
             status="queued",
+            latest_stage="queued",
+            latest_progress_pct=0,
         )
         self.session.add(run)
+        self.session.commit()
+        self.session.refresh(run)
+        return self._serialize_run(run)
+
+    def get_run_execution_context(self, run_id: str) -> dict[str, Any]:
+        """Return the persisted inputs needed to execute a benchmark run."""
+        workspace = self.get_default_workspace()
+        run = self.session.execute(
+            select(BenchmarkRunModel)
+            .where(
+                BenchmarkRunModel.workspace_id == workspace.id,
+                BenchmarkRunModel.id == run_id,
+            )
+            .options(
+                selectinload(BenchmarkRunModel.dataset_version).selectinload(DatasetVersionModel.documents),
+                selectinload(BenchmarkRunModel.dataset_version).selectinload(DatasetVersionModel.queries),
+                selectinload(BenchmarkRunModel.benchmark_config),
+            )
+        ).scalar_one_or_none()
+        if run is None:
+            raise LookupError(f"Run {run_id} not found")
+
+        dataset_version = run.dataset_version
+        documents = normalize_documents(
+            [
+                {
+                    "doc_id": document.doc_id,
+                    "content": document.content_text,
+                    "source": document.source_name,
+                }
+                for document in dataset_version.documents
+            ]
+        )
+        queries = normalize_queries(
+            [
+                {
+                    "query_id": query.query_id,
+                    "query": query.query_text,
+                }
+                for query in dataset_version.queries
+            ]
+        )
+        ground_truth = normalize_ground_truth(
+            {
+                query.query_id: set(query.relevant_doc_ids)
+                for query in dataset_version.queries
+            }
+        )
+        return {
+            "run_id": run.id,
+            "documents": documents,
+            "queries": queries,
+            "ground_truth": ground_truth,
+            "config": dict(run.benchmark_config.config_json),
+        }
+
+    def update_run_progress(self, run_id: str, *, progress_pct: int, stage: str) -> dict[str, Any]:
+        """Persist progress updates for a run."""
+        run = self._get_run_model(run_id)
+        run.latest_progress_pct = progress_pct
+        run.latest_stage = stage
+        self.session.commit()
+        self.session.refresh(run)
+        return self._serialize_run(run)
+
+    def mark_run_running(self, run_id: str) -> dict[str, Any]:
+        """Transition a run to running."""
+        run = self._get_run_model(run_id)
+        run.status = "running"
+        run.started_at = datetime.now(timezone.utc)
+        if run.latest_progress_pct == 0:
+            run.latest_progress_pct = 1
+        if run.latest_stage == "queued":
+            run.latest_stage = "starting"
+        self.session.commit()
+        self.session.refresh(run)
+        return self._serialize_run(run)
+
+    def complete_run(self, run_id: str) -> dict[str, Any]:
+        """Mark a run as completed."""
+        run = self._get_run_model(run_id)
+        run.status = "completed"
+        run.latest_stage = "completed"
+        run.latest_progress_pct = 100
+        run.finished_at = datetime.now(timezone.utc)
+        self.session.commit()
+        self.session.refresh(run)
+        return self._serialize_run(run)
+
+    def fail_run(self, run_id: str, error_summary: str) -> dict[str, Any]:
+        """Mark a run as failed."""
+        run = self._get_run_model(run_id)
+        run.status = "failed"
+        run.error_summary = error_summary
+        run.finished_at = datetime.now(timezone.utc)
+        if run.latest_stage == "queued":
+            run.latest_stage = "failed"
+        self.session.commit()
+        self.session.refresh(run)
+        return self._serialize_run(run)
+
+    def request_cancel(self, run_id: str) -> dict[str, Any]:
+        """Mark a run as cancellation requested."""
+        run = self._get_run_model(run_id)
+        run.cancel_requested_at = datetime.now(timezone.utc)
+        if run.status == "queued":
+            run.status = "cancel_requested"
+        self.session.commit()
+        self.session.refresh(run)
+        return self._serialize_run(run)
+
+    def mark_run_cancelled(self, run_id: str) -> dict[str, Any]:
+        """Mark a run as cancelled."""
+        run = self._get_run_model(run_id)
+        run.status = "cancelled"
+        run.latest_stage = "cancelled"
+        run.finished_at = datetime.now(timezone.utc)
         self.session.commit()
         self.session.refresh(run)
         return self._serialize_run(run)
@@ -229,6 +348,9 @@ class PlatformRepository:
 
     def get_run(self, run_id: str) -> dict[str, Any]:
         """Return a single benchmark run."""
+        return self._serialize_run(self._get_run_model(run_id))
+
+    def _get_run_model(self, run_id: str) -> BenchmarkRunModel:
         workspace = self.get_default_workspace()
         run = self.session.execute(
             select(BenchmarkRunModel).where(
@@ -238,7 +360,7 @@ class PlatformRepository:
         ).scalar_one_or_none()
         if run is None:
             raise LookupError(f"Run {run_id} not found")
-        return self._serialize_run(run)
+        return run
 
     def _serialize_dataset_summary(self, dataset: DatasetModel) -> dict[str, Any]:
         versions = sorted(dataset.versions, key=lambda item: item.version_number)
@@ -307,8 +429,11 @@ class PlatformRepository:
             "dataset_version_id": run.dataset_version_id,
             "benchmark_config_id": run.benchmark_config_id,
             "status": run.status,
+            "latest_stage": run.latest_stage,
+            "latest_progress_pct": run.latest_progress_pct,
             "error_summary": run.error_summary,
             "created_at": _serialize_datetime(run.created_at),
             "started_at": _serialize_datetime(run.started_at),
             "finished_at": _serialize_datetime(run.finished_at),
+            "cancel_requested_at": _serialize_datetime(run.cancel_requested_at),
         }

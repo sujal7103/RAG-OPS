@@ -79,6 +79,8 @@ class ServiceSettings(BaseSettings):
         2.0,
         alias="RAG_OPS_WORKER_POLL_INTERVAL_SECONDS",
     )
+    queue_backend: str = Field("thread", alias="RAG_OPS_QUEUE_BACKEND")
+    run_state_ttl_seconds: int = Field(3600, alias="RAG_OPS_RUN_STATE_TTL_SECONDS")
     warm_dependencies_on_startup: bool = Field(
         False,
         alias="RAG_OPS_WARM_DEPENDENCIES_ON_STARTUP",
