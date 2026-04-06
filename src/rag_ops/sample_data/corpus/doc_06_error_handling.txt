@@ -1,0 +1,9 @@
+Error handling in Python is done using try-except blocks. The try block contains code that might raise an exception, and the except block handles the exception. You can catch specific exception types or use a general except clause.
+
+Python has a hierarchy of built-in exceptions. The base class is BaseException, with Exception being the most commonly caught base class. Common exceptions include ValueError, TypeError, KeyError, IndexError, FileNotFoundError, and ZeroDivisionError.
+
+The else clause in a try-except block runs when no exception is raised. The finally clause always runs, regardless of whether an exception occurred. This is useful for cleanup operations like closing files or database connections.
+
+You can raise exceptions manually using the raise keyword. Custom exceptions are created by defining a new class that inherits from the Exception class. This allows you to create meaningful error messages specific to your application's domain.
+
+The assert statement is used for debugging purposes. It tests a condition and raises an AssertionError if the condition is False. Assertions can be disabled globally with the -O command line flag.

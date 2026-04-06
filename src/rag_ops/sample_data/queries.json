@@ -1,0 +1,77 @@
+[
+  {
+    "query_id": "q01",
+    "query": "How are lists different from tuples in Python?",
+    "relevant_doc_ids": ["doc_02_data_structures"]
+  },
+  {
+    "query_id": "q02",
+    "query": "What are decorators and how do they work?",
+    "relevant_doc_ids": ["doc_03_functions"]
+  },
+  {
+    "query_id": "q03",
+    "query": "Explain inheritance and polymorphism in Python",
+    "relevant_doc_ids": ["doc_04_oop"]
+  },
+  {
+    "query_id": "q04",
+    "query": "How to read and write files using Python?",
+    "relevant_doc_ids": ["doc_05_file_handling"]
+  },
+  {
+    "query_id": "q05",
+    "query": "How does try-except error handling work?",
+    "relevant_doc_ids": ["doc_06_error_handling"]
+  },
+  {
+    "query_id": "q06",
+    "query": "What is the difference between Flask and Django?",
+    "relevant_doc_ids": ["doc_08_web_development"]
+  },
+  {
+    "query_id": "q07",
+    "query": "How to use pandas for data analysis?",
+    "relevant_doc_ids": ["doc_09_data_science"]
+  },
+  {
+    "query_id": "q08",
+    "query": "What is pytest and how does it compare to unittest?",
+    "relevant_doc_ids": ["doc_10_testing"]
+  },
+  {
+    "query_id": "q09",
+    "query": "How do virtual environments and pip work?",
+    "relevant_doc_ids": ["doc_07_modules"]
+  },
+  {
+    "query_id": "q10",
+    "query": "What are *args and **kwargs in Python functions?",
+    "relevant_doc_ids": ["doc_03_functions"]
+  },
+  {
+    "query_id": "q11",
+    "query": "How does garbage collection work in Python?",
+    "relevant_doc_ids": ["doc_01_python_basics"]
+  },
+  {
+    "query_id": "q12",
+    "query": "What is dictionary time complexity for lookups?",
+    "relevant_doc_ids": ["doc_02_data_structures"]
+  },
+  {
+    "query_id": "q13",
+    "query": "How to create custom exceptions in Python?",
+    "relevant_doc_ids": ["doc_06_error_handling"]
+  },
+  {
+    "query_id": "q14",
+    "query": "What is FastAPI and how does it use type hints?",
+    "relevant_doc_ids": ["doc_08_web_development"]
+  },
+  {
+    "query_id": "q15",
+    "query": "How to use NumPy arrays for scientific computing?",
+    "relevant_doc_ids": ["doc_09_data_science"]
+  }
+]

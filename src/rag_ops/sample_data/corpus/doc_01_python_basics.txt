@@ -1,0 +1,5 @@
+Python is a high-level, interpreted programming language created by Guido van Rossum and first released in 1991. Python's design philosophy emphasizes code readability with the use of significant indentation. It supports multiple programming paradigms, including structured, object-oriented, and functional programming.
+
+Python uses dynamic typing and a combination of reference counting and a cycle-detecting garbage collector for memory management. It features a comprehensive standard library, which is one of its greatest strengths.
+
+Variables in Python do not need explicit declaration to reserve memory space. The declaration happens automatically when you assign a value to a variable. Python has five standard data types: Numbers, String, List, Tuple, and Dictionary.

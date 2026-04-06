@@ -1,0 +1,14 @@
+.git
+.github
+.pytest_cache
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.venv
+venv
+.rag_benchkit_cache
+.rag_benchkit_runs
+screenshots
+tests
+

@@ -1,0 +1,9 @@
+Unit testing in Python is primarily done using the unittest module, which is part of the standard library. It follows the xUnit pattern with test cases, test suites, and test runners. Test methods must start with the word "test" and use assertion methods like assertEqual, assertTrue, and assertRaises.
+
+Pytest is a popular third-party testing framework that offers a simpler syntax compared to unittest. It uses plain assert statements instead of special assertion methods. Pytest also supports powerful features like fixtures, parametrize decorators, and plugins.
+
+Test-Driven Development (TDD) is a software development methodology where tests are written before the actual code. The process follows a red-green-refactor cycle: write a failing test (red), write the minimum code to pass the test (green), and then refactor the code while keeping the tests passing.
+
+Mocking is a testing technique where you replace real objects with fake ones to isolate the code being tested. Python's unittest.mock module provides the Mock and MagicMock classes for creating mock objects. The patch decorator is used to temporarily replace objects during testing.
+
+Code coverage measures the percentage of code that is executed during testing. The coverage.py tool is commonly used to measure code coverage in Python projects. High code coverage does not guarantee bug-free code, but it helps identify untested code paths.

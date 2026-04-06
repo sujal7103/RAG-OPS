@@ -1,0 +1,9 @@
+File handling in Python is done using the built-in open() function. The open() function takes a file path and a mode as arguments. Common modes include 'r' for reading, 'w' for writing, 'a' for appending, and 'rb'/'wb' for binary operations.
+
+The with statement is the recommended way to work with files in Python. It automatically handles closing the file after the block of code is executed, even if an exception occurs. This is known as a context manager.
+
+Reading files can be done using read(), readline(), or readlines() methods. The read() method reads the entire file content as a string, readline() reads one line at a time, and readlines() returns a list of all lines.
+
+Writing to files is done using the write() or writelines() methods. The write() method writes a string to the file, while writelines() writes a list of strings. Remember that 'w' mode overwrites the existing file content, while 'a' mode appends to the end.
+
+Python also provides the csv module for reading and writing CSV files, the json module for JSON files, and the pickle module for serializing Python objects to binary files.

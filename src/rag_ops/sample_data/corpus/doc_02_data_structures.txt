@@ -1,0 +1,7 @@
+Lists in Python are ordered, mutable collections that can hold items of different types. Lists are created using square brackets. You can add items using append(), insert(), or extend() methods. Lists support slicing, which allows you to access a range of elements using the colon operator.
+
+Dictionaries are unordered collections of key-value pairs. They are created using curly braces or the dict() constructor. Keys must be immutable types like strings or numbers. Dictionaries provide O(1) average time complexity for lookups, making them extremely efficient for data retrieval.
+
+Tuples are similar to lists but are immutable — once created, their elements cannot be changed. Tuples are created using parentheses and are often used to represent fixed collections of items. They are hashable, which means they can be used as dictionary keys.
+
+Sets are unordered collections of unique elements. They support mathematical operations like union, intersection, difference, and symmetric difference. Sets are useful for removing duplicates from a sequence and testing membership.

@@ -1,0 +1,9 @@
+Flask is a lightweight web framework for Python. It is designed to be simple and easy to use, making it ideal for small to medium web applications. Flask uses the Jinja2 template engine for rendering HTML templates and Werkzeug for WSGI utilities.
+
+Django is a full-featured web framework that follows the model-template-view (MTV) architectural pattern. It includes an ORM for database operations, a built-in admin interface, authentication system, and URL routing. Django emphasizes the "don't repeat yourself" (DRY) principle.
+
+REST APIs can be built using frameworks like Flask-RESTful or Django REST Framework. These frameworks provide tools for serialization, authentication, pagination, and request parsing. RESTful APIs use HTTP methods (GET, POST, PUT, DELETE) to perform CRUD operations.
+
+FastAPI is a modern Python web framework that uses type hints for automatic request validation and API documentation. It is built on Starlette for the web parts and Pydantic for data validation. FastAPI is known for its high performance and automatic OpenAPI documentation generation.
+
+Web scraping in Python is commonly done using libraries like Beautiful Soup and Requests. Beautiful Soup parses HTML and XML documents, while Requests handles HTTP communication. For dynamic websites that require JavaScript rendering, Selenium or Playwright can be used.

@@ -1,0 +1,7 @@
+Functions in Python are defined using the def keyword, followed by the function name and parentheses. Functions can take parameters and return values using the return statement. If no return statement is specified, the function returns None by default.
+
+Python supports several types of function arguments: positional arguments, keyword arguments, default arguments, and variable-length arguments (*args and **kwargs). The *args syntax allows a function to accept any number of positional arguments, while **kwargs allows any number of keyword arguments.
+
+Lambda functions are small anonymous functions defined with the lambda keyword. They can have any number of arguments but only one expression. Lambda functions are often used with built-in functions like map(), filter(), and sorted().
+
+Decorators are a powerful feature in Python that allow you to modify the behavior of a function without changing its source code. A decorator is a function that takes another function as an argument and returns a new function. Common use cases include logging, authentication, and caching.

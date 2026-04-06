@@ -1,0 +1,9 @@
+Modules in Python are files containing Python code that can be imported and used in other programs. A module can define functions, classes, and variables. Python comes with a large standard library of modules for various tasks.
+
+The import statement is used to include modules in your program. You can import an entire module, specific items from a module using from...import, or give a module an alias using import...as. Python searches for modules in the directories listed in sys.path.
+
+Packages are a way of organizing related modules into a directory hierarchy. A package is a directory that contains an __init__.py file and one or more module files. The __init__.py file can be empty or can contain initialization code for the package.
+
+Virtual environments are isolated Python environments that allow you to install packages without affecting the system-wide Python installation. They are created using the venv module and are essential for managing project dependencies. Each virtual environment has its own Python binary and independent set of installed packages.
+
+The pip package manager is used to install, upgrade, and remove Python packages from the Python Package Index (PyPI). Requirements files (requirements.txt) list all dependencies for a project, making it easy to reproduce the environment.

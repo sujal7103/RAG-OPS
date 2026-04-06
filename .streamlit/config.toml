@@ -1,0 +1,15 @@
+[theme]
+base = "light"
+primaryColor = "#5B6ABF"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F7F8FC"
+textColor = "#1A1A2E"
+font = "sans serif"
+
+[server]
+headless = true
+fileWatcherType = "none"
+folderWatchBlacklist = [".venv", "venv", "__pycache__", "*.egg-info"]
+
+[browser]
+gatherUsageStats = false

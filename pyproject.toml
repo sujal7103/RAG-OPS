@@ -1,0 +1,56 @@
+[project]
+name = "rag-ops"
+version = "0.1.0"
+description = "Open-source RAG evaluation toolkit. Compare chunking strategies, embedding models, and retrieval methods with a beautiful dashboard."
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [{name = "Saurabh"}]
+keywords = ["rag", "evaluation", "benchmark", "retrieval", "embeddings", "chunking"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+    "streamlit>=1.28",
+    "plotly>=5.18",
+    "pandas>=2.0",
+    "numpy>=1.24",
+    "faiss-cpu>=1.7",
+    "rank-bm25>=0.2",
+    "sentence-transformers>=2.2",
+    "openai>=1.0",
+    "cohere>=4.0",
+    "tiktoken>=0.5",
+    "pymupdf>=1.23",
+    "matplotlib>=3.7",
+]
+
+[project.scripts]
+rag-ops = "rag_ops.cli:main"
+
+[project.optional-dependencies]
+dev = ["pytest>=7.4", "pytest-cov", "ruff"]
+
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+rag_ops = ["sample_data/queries.json", "sample_data/corpus/*.txt"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

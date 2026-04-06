@@ -1,0 +1,9 @@
+Object-Oriented Programming (OOP) in Python is built around the concept of classes and objects. A class is a blueprint for creating objects, and an object is an instance of a class. Classes are defined using the class keyword.
+
+The __init__ method is a special method called a constructor. It is automatically called when a new object is created and is used to initialize the object's attributes. The self parameter refers to the current instance of the class.
+
+Inheritance allows a class to inherit attributes and methods from another class. The class that inherits is called a child class, and the class being inherited from is called a parent class. Python supports multiple inheritance, where a class can inherit from multiple parent classes.
+
+Encapsulation is the bundling of data and methods that operate on that data within a single unit. In Python, encapsulation is achieved using private attributes (prefixed with double underscores) and property decorators. This helps protect the internal state of an object from unintended modifications.
+
+Polymorphism allows objects of different classes to be treated as objects of a common base class. In Python, polymorphism is achieved through method overriding and duck typing. Duck typing means that the type of an object is determined by its behavior rather than its class.
