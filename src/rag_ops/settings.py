@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import secrets
 from functools import lru_cache
 from pathlib import Path
 
@@ -83,6 +84,22 @@ def get_default_database_url() -> str:
     return os.getenv("RAG_OPS_DATABASE_URL", f"sqlite:///{state_dir}/rag_ops.db")
 
 
+def get_default_credential_key() -> str:
+    """Return a persisted local credential key for development use."""
+    configured = os.getenv("RAG_OPS_CREDENTIAL_KEY", "").strip()
+    if configured:
+        return configured
+
+    state_dir = Path(ensure_directory(get_default_state_dir()))
+    key_path = state_dir / "credential.key"
+    if key_path.exists():
+        return key_path.read_text().strip()
+
+    generated = secrets.token_urlsafe(32)
+    key_path.write_text(generated)
+    return generated
+
+
 class ServiceSettings(BaseSettings):
     """Configuration shared by the API, worker, and platform services."""
 
@@ -132,6 +149,23 @@ class ServiceSettings(BaseSettings):
     default_workspace_name: str = Field(
         "Personal Workspace",
         alias="RAG_OPS_DEFAULT_WORKSPACE_NAME",
+    )
+    auth_mode: str = Field("dev", alias="RAG_OPS_AUTH_MODE")
+    dev_default_user_email: str = Field(
+        "owner@ragops.local",
+        alias="RAG_OPS_DEV_DEFAULT_USER_EMAIL",
+    )
+    dev_default_user_name: str = Field(
+        "RAG-OPS Owner",
+        alias="RAG_OPS_DEV_DEFAULT_USER_NAME",
+    )
+    dev_default_user_role: str = Field(
+        "workspace_owner",
+        alias="RAG_OPS_DEV_DEFAULT_USER_ROLE",
+    )
+    credential_key: str = Field(
+        default_factory=get_default_credential_key,
+        alias="RAG_OPS_CREDENTIAL_KEY",
     )
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")

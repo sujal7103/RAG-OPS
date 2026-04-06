@@ -14,6 +14,7 @@ def _build_settings(**overrides) -> ServiceSettings:
         "RAG_OPS_DATABASE_AUTO_CREATE": "true",
         "RAG_OPS_REDIS_ENABLED": "false",
         "RAG_OPS_ENV": "test",
+        "RAG_OPS_STATE_DIR": ".rag_ops/test_api_state",
     }
     base.update({key: str(value) for key, value in overrides.items()})
     return ServiceSettings(**base)

@@ -13,12 +13,14 @@ from rag_ops.settings import ServiceSettings
 
 def _build_settings(tmp_path: Path, **overrides) -> ServiceSettings:
     db_path = tmp_path / "rag_ops_platform.db"
+    state_dir = tmp_path / "state"
     base = {
         "RAG_OPS_DATABASE_URL": f"sqlite:///{db_path}",
         "RAG_OPS_DATABASE_AUTO_CREATE": "true",
         "RAG_OPS_REDIS_ENABLED": "false",
         "RAG_OPS_ENV": "test",
         "RAG_OPS_QUEUE_BACKEND": "disabled",
+        "RAG_OPS_STATE_DIR": str(state_dir),
         "RAG_OPS_DEFAULT_WORKSPACE_SLUG": "test-workspace",
         "RAG_OPS_DEFAULT_WORKSPACE_NAME": "Test Workspace",
     }

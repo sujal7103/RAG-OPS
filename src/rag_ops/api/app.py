@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from rag_ops.api.middleware import RequestContextMiddleware, TimeoutMiddleware
 from rag_ops.api.routes.platform import router as platform_router
+from rag_ops.api.routes.security import router as security_router
 from rag_ops.api.routes.system import router as system_router
 from rag_ops.db.bootstrap import initialize_database
 from rag_ops.db.session import get_session_factory
@@ -61,6 +62,7 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
         allow_headers=["*"],
     )
     app.include_router(system_router)
+    app.include_router(security_router)
     app.include_router(platform_router)
     return app
 

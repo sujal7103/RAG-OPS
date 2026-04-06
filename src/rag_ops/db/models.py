@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import DateTime, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy import DateTime, ForeignKey, Integer, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -34,9 +34,47 @@ class WorkspaceModel(Base):
     name: Mapped[str] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
+    memberships: Mapped[list["MembershipModel"]] = relationship(back_populates="workspace")
+    provider_credentials: Mapped[list["ProviderCredentialModel"]] = relationship(
+        back_populates="workspace"
+    )
+    audit_events: Mapped[list["AuditEventModel"]] = relationship(back_populates="workspace")
     datasets: Mapped[list["DatasetModel"]] = relationship(back_populates="workspace")
     configs: Mapped[list["BenchmarkConfigModel"]] = relationship(back_populates="workspace")
     runs: Mapped[list["BenchmarkRunModel"]] = relationship(back_populates="workspace")
+
+
+class UserModel(Base):
+    """User identity used for workspace membership and audit trails."""
+
+    __tablename__ = "users"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_id)
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    display_name: Mapped[str] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    memberships: Mapped[list["MembershipModel"]] = relationship(back_populates="user")
+    created_credentials: Mapped[list["ProviderCredentialModel"]] = relationship(
+        back_populates="created_by_user"
+    )
+    audit_events: Mapped[list["AuditEventModel"]] = relationship(back_populates="user")
+
+
+class MembershipModel(Base):
+    """A user's role within a workspace."""
+
+    __tablename__ = "memberships"
+    __table_args__ = (UniqueConstraint("workspace_id", "user_id", name="uq_membership_workspace_user"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_id)
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    role: Mapped[str] = mapped_column(String(64), default="workspace_member")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    workspace: Mapped[WorkspaceModel] = relationship(back_populates="memberships")
+    user: Mapped[UserModel] = relationship(back_populates="memberships")
 
 
 class DatasetModel(Base):
@@ -154,3 +192,45 @@ class BenchmarkRunModel(Base):
     workspace: Mapped[WorkspaceModel] = relationship(back_populates="runs")
     dataset_version: Mapped[DatasetVersionModel] = relationship(back_populates="runs")
     benchmark_config: Mapped[BenchmarkConfigModel] = relationship(back_populates="runs")
+
+
+class ProviderCredentialModel(Base):
+    """Encrypted provider credential scoped to one workspace."""
+
+    __tablename__ = "provider_credentials"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_id)
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    created_by_user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    provider: Mapped[str] = mapped_column(String(64), index=True)
+    label: Mapped[str] = mapped_column(String(255))
+    ciphertext: Mapped[str] = mapped_column(Text)
+    key_id: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        onupdate=utc_now,
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    workspace: Mapped[WorkspaceModel] = relationship(back_populates="provider_credentials")
+    created_by_user: Mapped[UserModel] = relationship(back_populates="created_credentials")
+
+
+class AuditEventModel(Base):
+    """Workspace-scoped audit log entry."""
+
+    __tablename__ = "audit_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_id)
+    workspace_id: Mapped[str] = mapped_column(ForeignKey("workspaces.id"), index=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    action: Mapped[str] = mapped_column(String(120), index=True)
+    target_type: Mapped[str] = mapped_column(String(120))
+    target_id: Mapped[str] = mapped_column(String(36))
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    workspace: Mapped[WorkspaceModel] = relationship(back_populates="audit_events")
+    user: Mapped[UserModel] = relationship(back_populates="audit_events")
