@@ -17,6 +17,11 @@
 
 RAG-OPS is an open-source evaluation toolkit that benchmarks every combination of chunking strategies, embedding models, and retrieval methods against your documents — and visualizes the results in a clean dashboard. No boilerplate, no notebooks, no guesswork.
 
+The repo now ships two UI layers:
+
+- a React product frontend in [`frontend/`](./frontend) for the main user experience
+- the original Streamlit UI in [`src/rag_ops/ui/`](./src/rag_ops/ui) for internal/admin workflows
+
 > Most RAG teams pick chunking and embedding settings once and never revisit them. This tool makes it trivial to find out if that was the right call.
 
 ---
@@ -86,7 +91,23 @@ For development (includes pytest, ruff):
 pip install -e ".[dev]"
 ```
 
-### 4. Run the app
+### 4. Run the React frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open `http://localhost:3000`.
+
+By default the frontend talks to `http://localhost:8000`. To override that:
+
+```bash
+VITE_RAG_OPS_API_BASE_URL=http://localhost:8000 npm run dev
+```
+
+### 5. Run the Streamlit admin UI
 
 ```bash
 streamlit run app.py
@@ -104,7 +125,7 @@ RAG_OPS_API_BASE_URL=http://localhost:8000 streamlit run app.py
 
 In API-backed mode, datasets/configs/runs are created through the service layer and the UI polls run progress from the API.
 
-### 5. Run from the CLI
+### 6. Run from the CLI
 
 ```bash
 rag-ops --sample
@@ -123,7 +144,7 @@ rag-ops \
 
 By default, cached chunks and embeddings are stored in `.rag_ops_cache/`, and saved run artifacts are written to `.rag_ops_runs/`.
 
-### 6. Run the service foundation
+### 7. Run the service foundation
 
 RAG-OPS now also includes a service-platform foundation for the upcoming API-first architecture:
 
@@ -142,6 +163,9 @@ For local multi-service development:
 ```bash
 docker compose up --build
 ```
+
+The React product UI will be available on `http://localhost:3000`.
+The Streamlit admin UI will stay available on `http://localhost:8501`.
 
 The platform stack expects a local `.env` file for infrastructure credentials such as Postgres and MinIO.
 The persistence layer now stores datasets, benchmark configs, and run metadata in SQLAlchemy-backed tables, with Alembic scaffolding ready for managed migrations.
@@ -196,6 +220,7 @@ rag-ops/
 ├── docker-compose.yml              # Local multi-service platform topology
 ├── pyproject.toml                  # Package config, scripts, and test settings
 ├── Dockerfile                      # Containerized runtime
+├── frontend/                       # React product frontend
 ├── src/rag_ops/
 │   ├── api/                        # FastAPI application and middleware
 │   ├── cli.py                      # CLI benchmark entrypoint
@@ -216,7 +241,7 @@ rag-ops/
 │   ├── runner.py                   # Benchmark orchestration
 │   ├── services/                   # Platform service helpers
 │   ├── validation.py               # Input and config validation
-│   ├── ui/                         # Streamlit UI modules
+│   ├── ui/                         # Streamlit admin UI modules
 │   ├── workers/                    # Async worker entrypoints
 │   │   ├── app.py                  # Main UI orchestration
 │   │   ├── sidebar.py              # Sidebar config controls

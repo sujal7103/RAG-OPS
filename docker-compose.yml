@@ -1,4 +1,13 @@
 services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    depends_on:
+      - api
+    ports:
+      - "3000:3000"
+
   api:
     build: .
     command: ["python", "-m", "rag_ops.api.app"]
