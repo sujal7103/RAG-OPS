@@ -6,14 +6,9 @@ import json
 from typing import Any
 from urllib import error, request
 
-from rag_ops.experiment_store import get_runs_dir
 from rag_ops.models import BenchmarkArtifacts
 from rag_ops.results_frame import build_results_frame
-from rag_ops.settings import (
-    ensure_directory,
-    get_default_runs_dir,
-    get_settings,
-)
+from rag_ops.settings import get_settings
 
 
 class ApiClientError(RuntimeError):
@@ -90,6 +85,14 @@ class RagOpsApiClient:
         """Fetch the latest state for one benchmark run."""
         return self._request_json("GET", f"/v1/runs/{run_id}")
 
+    def get_run_results(self, run_id: str) -> dict[str, Any]:
+        """Fetch persisted aggregate and per-query results for a run."""
+        return self._request_json("GET", f"/v1/runs/{run_id}/results")
+
+    def get_run_artifacts(self, run_id: str) -> dict[str, Any]:
+        """Fetch persisted artifact metadata for a run."""
+        return self._request_json("GET", f"/v1/runs/{run_id}/artifacts")
+
     def _request_json(
         self,
         method: str,
@@ -141,33 +144,29 @@ def get_streamlit_api_client() -> RagOpsApiClient | None:
     return RagOpsApiClient(settings.api_base_url, timeout_seconds=settings.request_timeout_seconds)
 
 
-def load_run_outputs(run_id: str) -> tuple[Any, dict[str, list[dict[str, Any]]], BenchmarkArtifacts | None]:
-    """Load persisted run outputs from the shared runs directory."""
-    run_directory = get_runs_dir(ensure_directory(get_default_runs_dir())) / run_id
-    results_json = run_directory / "results.json"
-    per_query_json = run_directory / "per_query.json"
-    summary_json = run_directory / "summary.json"
-    results_csv = run_directory / "results.csv"
+def load_run_outputs(
+    api_client: RagOpsApiClient,
+    run_id: str,
+) -> tuple[Any, dict[str, list[dict[str, Any]]], BenchmarkArtifacts | None]:
+    """Load persisted run outputs through the API."""
+    results_payload = api_client.get_run_results(run_id)
+    artifacts_payload = api_client.get_run_artifacts(run_id)
 
-    if not results_json.exists() or not per_query_json.exists():
-        raise FileNotFoundError(
-            f"Run {run_id} completed but saved results were not found in {run_directory}"
-        )
-
-    result_rows = json.loads(results_json.read_text())
-    per_query_results = json.loads(per_query_json.read_text())
+    result_rows = list(results_payload.get("items", []))
+    per_query_results = dict(results_payload.get("per_query_results", {}))
     results_df = build_results_frame(result_rows)
     if not results_df.empty:
         results_df = results_df.sort_values("recall@k", ascending=False).reset_index(drop=True)
 
     artifact = None
-    if summary_json.exists():
+    bundle = artifacts_payload.get("bundle")
+    if isinstance(bundle, dict):
         artifact = BenchmarkArtifacts(
             run_id=run_id,
-            directory=str(run_directory),
-            summary_json=str(summary_json),
-            results_csv=str(results_csv),
-            results_json=str(results_json),
-            per_query_json=str(per_query_json),
+            directory=str(bundle.get("directory", "")),
+            summary_json=str(bundle.get("summary_json", "")),
+            results_csv=str(bundle.get("results_csv", "")),
+            results_json=str(bundle.get("results_json", "")),
+            per_query_json=str(bundle.get("per_query_json", "")),
         )
     return results_df, per_query_results, artifact

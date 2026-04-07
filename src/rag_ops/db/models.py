@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import DateTime, ForeignKey, Integer, JSON, String, Text, UniqueConstraint
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -192,6 +192,70 @@ class BenchmarkRunModel(Base):
     workspace: Mapped[WorkspaceModel] = relationship(back_populates="runs")
     dataset_version: Mapped[DatasetVersionModel] = relationship(back_populates="runs")
     benchmark_config: Mapped[BenchmarkConfigModel] = relationship(back_populates="runs")
+    aggregate_results: Mapped[list["BenchmarkResultAggregateModel"]] = relationship(
+        back_populates="benchmark_run",
+        cascade="all, delete-orphan",
+    )
+    per_query_results: Mapped[list["BenchmarkResultPerQueryModel"]] = relationship(
+        back_populates="benchmark_run",
+        cascade="all, delete-orphan",
+    )
+    artifacts: Mapped[list["ArtifactModel"]] = relationship(
+        back_populates="benchmark_run",
+        cascade="all, delete-orphan",
+    )
+
+
+class BenchmarkResultAggregateModel(Base):
+    """Aggregate benchmark result row persisted per run/configuration."""
+
+    __tablename__ = "benchmark_result_aggregates"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    benchmark_run_id: Mapped[str] = mapped_column(ForeignKey("benchmark_runs.id"), index=True)
+    config_label: Mapped[str] = mapped_column(String(255))
+    chunker: Mapped[str] = mapped_column(String(255))
+    embedder: Mapped[str] = mapped_column(String(255))
+    retriever: Mapped[str] = mapped_column(String(255))
+    metrics_json: Mapped[dict[str, Any]] = mapped_column(JSON)
+    latency_ms: Mapped[float] = mapped_column(Float, default=0.0)
+    num_chunks: Mapped[int] = mapped_column(Integer, default=0)
+    avg_chunk_size: Mapped[float] = mapped_column(Float, default=0.0)
+    error: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    benchmark_run: Mapped[BenchmarkRunModel] = relationship(back_populates="aggregate_results")
+
+
+class BenchmarkResultPerQueryModel(Base):
+    """Per-query benchmark details persisted for one run/configuration/query."""
+
+    __tablename__ = "benchmark_result_per_query"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    benchmark_run_id: Mapped[str] = mapped_column(ForeignKey("benchmark_runs.id"), index=True)
+    config_label: Mapped[str] = mapped_column(String(255), index=True)
+    query_id: Mapped[str] = mapped_column(String(255), index=True)
+    payload_json: Mapped[dict[str, Any]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    benchmark_run: Mapped[BenchmarkRunModel] = relationship(back_populates="per_query_results")
+
+
+class ArtifactModel(Base):
+    """Persisted artifact metadata for one benchmark run."""
+
+    __tablename__ = "artifacts"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_id)
+    benchmark_run_id: Mapped[str] = mapped_column(ForeignKey("benchmark_runs.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(120), index=True)
+    uri: Mapped[str] = mapped_column(Text)
+    format: Mapped[str] = mapped_column(String(32))
+    size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    benchmark_run: Mapped[BenchmarkRunModel] = relationship(back_populates="artifacts")
 
 
 class ProviderCredentialModel(Base):

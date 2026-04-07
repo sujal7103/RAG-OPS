@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Iterable, Sequence
+from typing import Any, Sequence
 
 import numpy as np
 
@@ -55,3 +55,18 @@ def build_results_frame(rows: Sequence[dict[str, Any]]) -> Any:
         return pd.DataFrame(row_list)
     return SimpleResultsFrame(row_list)
 
+
+def results_frame_to_records(frame: Any) -> list[dict[str, Any]]:
+    """Convert a pandas or fallback results frame into plain row mappings."""
+    if frame is None:
+        return []
+    if hasattr(frame, "to_dict"):
+        try:
+            return list(frame.to_dict(orient="records"))
+        except TypeError:
+            pass
+    if hasattr(frame, "to_records"):
+        return list(frame.to_records())
+    if isinstance(frame, Sequence):
+        return [dict(row) for row in frame]
+    raise TypeError("Unsupported results frame type")

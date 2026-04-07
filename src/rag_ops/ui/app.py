@@ -84,7 +84,7 @@ def _run_benchmark_via_api(st, api_client, config) -> None:
                 st.error(run_payload.get("error_summary", "The benchmark run failed."))
             return
 
-        results_df, per_query_results, run_artifacts = load_run_outputs(run_id)
+        results_df, per_query_results, run_artifacts = load_run_outputs(api_client, run_id)
         store_benchmark_results(
             st,
             results_df,

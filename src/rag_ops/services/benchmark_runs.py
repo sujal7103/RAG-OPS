@@ -7,6 +7,7 @@ import threading
 
 from rag_ops.db.session import get_session_factory
 from rag_ops.repositories.platform import PlatformRepository
+from rag_ops.results_frame import results_frame_to_records
 from rag_ops.runner import BenchmarkCancelledError, run_benchmark
 from rag_ops.services.run_state import RunStateStore
 from rag_ops.settings import (
@@ -44,7 +45,12 @@ def execute_benchmark_run(run_id: str, settings: ServiceSettings | None = None) 
         return state_store.is_cancel_requested(run_id)
 
     try:
-        run_benchmark(
+        captured_artifact = {"value": None}
+
+        def on_artifact(artifact) -> None:
+            captured_artifact["value"] = artifact
+
+        results_frame, per_query_results = run_benchmark(
             documents=execution_context["documents"],
             queries=execution_context["queries"],
             ground_truth=execution_context["ground_truth"],
@@ -57,6 +63,7 @@ def execute_benchmark_run(run_id: str, settings: ServiceSettings | None = None) 
             cache_dir=ensure_directory(get_default_cache_dir()),
             persist_run_artifacts=True,
             runs_dir=ensure_directory(get_default_runs_dir()),
+            artifact_callback=on_artifact,
             cancel_callback=should_cancel,
             run_id=run_id,
         )
@@ -76,6 +83,12 @@ def execute_benchmark_run(run_id: str, settings: ServiceSettings | None = None) 
 
     with session_factory(active_settings)() as session:
         repo = PlatformRepository(session, active_settings)
+        repo.save_run_outputs(
+            run_id,
+            result_rows=results_frame_to_records(results_frame),
+            per_query_results=per_query_results,
+            artifact=captured_artifact["value"],
+        )
         repo.complete_run(run_id)
     state_store.set_progress(run_id, progress_pct=100, stage="completed")
 

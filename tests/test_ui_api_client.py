@@ -2,22 +2,14 @@
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-
 from rag_ops.ui.api_client import load_run_outputs
 
 
-def test_load_run_outputs_reads_saved_artifacts(tmp_path: Path, monkeypatch):
-    """Saved run outputs should load back into the UI-friendly structures."""
-    runs_dir = tmp_path / "runs"
-    run_id = "run-test-123"
-    run_dir = runs_dir / run_id
-    run_dir.mkdir(parents=True)
-
-    (run_dir / "results.json").write_text(
-        json.dumps(
-            [
+class FakeApiClient:
+    def get_run_results(self, run_id: str):
+        return {
+            "run_id": run_id,
+            "items": [
                 {
                     "chunker": "Fixed Size",
                     "embedder": "MiniLM",
@@ -32,13 +24,10 @@ def test_load_run_outputs_reads_saved_artifacts(tmp_path: Path, monkeypatch):
                     "num_chunks": 4,
                     "avg_chunk_size": 120.0,
                     "error": "",
+                    "config_label": "Fixed Size + MiniLM + Dense",
                 }
-            ]
-        )
-    )
-    (run_dir / "per_query.json").write_text(
-        json.dumps(
-            {
+            ],
+            "per_query_results": {
                 "Fixed Size + MiniLM + Dense": [
                     {
                         "query_id": "q1",
@@ -51,15 +40,29 @@ def test_load_run_outputs_reads_saved_artifacts(tmp_path: Path, monkeypatch):
                         "mrr": 1.0,
                     }
                 ]
-            }
-        )
-    )
-    (run_dir / "summary.json").write_text(json.dumps({"run_id": run_id}))
-    (run_dir / "results.csv").write_text("chunker,embedder,retriever\n")
+            },
+        }
 
-    monkeypatch.setenv("RAG_OPS_RUNS_DIR", str(runs_dir))
+    def get_run_artifacts(self, run_id: str):
+        return {
+            "run_id": run_id,
+            "items": [],
+            "bundle": {
+                "run_id": run_id,
+                "directory": f"/tmp/{run_id}",
+                "summary_json": f"/tmp/{run_id}/summary.json",
+                "results_csv": f"/tmp/{run_id}/results.csv",
+                "results_json": f"/tmp/{run_id}/results.json",
+                "per_query_json": f"/tmp/{run_id}/per_query.json",
+            },
+        }
 
-    results_df, per_query_results, artifact = load_run_outputs(run_id)
+
+def test_load_run_outputs_reads_api_payloads():
+    """API result and artifact payloads should load into UI-friendly structures."""
+    run_id = "run-test-123"
+
+    results_df, per_query_results, artifact = load_run_outputs(FakeApiClient(), run_id)
 
     assert len(results_df) == 1
     assert per_query_results["Fixed Size + MiniLM + Dense"][0]["query_id"] == "q1"

@@ -7,6 +7,8 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from rag_ops.api.app import create_app
+from rag_ops.models import BenchmarkArtifacts
+from rag_ops.results_frame import build_results_frame
 from rag_ops.db.session import get_session_factory
 from rag_ops.db.session import reset_engine_cache
 from rag_ops.repositories.platform import PlatformRepository
@@ -104,7 +106,62 @@ def test_execute_benchmark_run_updates_status(monkeypatch, tmp_path: Path):
     def fake_run_benchmark(**kwargs):
         kwargs["progress_callback"](25, "Preparing test run")
         kwargs["progress_callback"](75, "Finishing test run")
-        return [], {}
+        if kwargs.get("artifact_callback") is not None:
+            artifact_dir = tmp_path / "runs" / kwargs["run_id"]
+            artifact_dir.mkdir(parents=True, exist_ok=True)
+            summary_json = artifact_dir / "summary.json"
+            results_csv = artifact_dir / "results.csv"
+            results_json = artifact_dir / "results.json"
+            per_query_json = artifact_dir / "per_query.json"
+            summary_json.write_text("{}")
+            results_csv.write_text("chunker,embedder,retriever\n")
+            results_json.write_text("[]")
+            per_query_json.write_text("{}")
+            kwargs["artifact_callback"](
+                BenchmarkArtifacts(
+                    run_id=kwargs["run_id"],
+                    directory=str(artifact_dir),
+                    summary_json=str(summary_json),
+                    results_csv=str(results_csv),
+                    results_json=str(results_json),
+                    per_query_json=str(per_query_json),
+                )
+            )
+        return (
+            build_results_frame(
+                [
+                    {
+                        "chunker": "Fixed Size",
+                        "embedder": "MiniLM",
+                        "retriever": "Dense",
+                        "precision@k": 1.0,
+                        "recall@k": 1.0,
+                        "mrr": 1.0,
+                        "ndcg@k": 1.0,
+                        "map@k": 1.0,
+                        "hit_rate@k": 1.0,
+                        "latency_ms": 12.0,
+                        "num_chunks": 1,
+                        "avg_chunk_size": 13.0,
+                        "error": "",
+                    }
+                ]
+            ),
+            {
+                "Fixed Size + MiniLM + Dense": [
+                    {
+                        "query_id": "q1",
+                        "query": "What is Python?",
+                        "retrieved_docs": "d1",
+                        "relevant_docs": "d1",
+                        "hit": True,
+                        "precision": 1.0,
+                        "recall": 1.0,
+                        "mrr": 1.0,
+                    }
+                ]
+            },
+        )
 
     monkeypatch.setattr("rag_ops.services.benchmark_runs.run_benchmark", fake_run_benchmark)
 
@@ -113,7 +170,20 @@ def test_execute_benchmark_run_updates_status(monkeypatch, tmp_path: Path):
     with get_session_factory(settings)() as session:
         repo = PlatformRepository(session, settings)
         run_payload = repo.get_run(run_id)
+        results_payload = repo.get_run_results(run_id)
+        artifacts_payload = repo.list_run_artifacts(run_id)
+
+    with TestClient(create_app(settings)) as client:
+        api_results_response = client.get(f"/v1/runs/{run_id}/results")
+        api_artifacts_response = client.get(f"/v1/runs/{run_id}/artifacts")
 
     assert run_payload["status"] == "completed"
     assert run_payload["latest_progress_pct"] == 100
     assert run_payload["latest_stage"] == "completed"
+    assert results_payload["items"][0]["retriever"] == "Dense"
+    assert results_payload["per_query_results"]["Fixed Size + MiniLM + Dense"][0]["query_id"] == "q1"
+    assert artifacts_payload["bundle"]["results_json"].endswith("results.json")
+    assert api_results_response.status_code == 200
+    assert api_results_response.json()["items"][0]["chunker"] == "Fixed Size"
+    assert api_artifacts_response.status_code == 200
+    assert api_artifacts_response.json()["bundle"]["summary_json"].endswith("summary.json")

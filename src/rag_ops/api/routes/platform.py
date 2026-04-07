@@ -204,3 +204,21 @@ def cancel_run(run_id: str, repo: PlatformRepository = Depends(get_platform_repo
         return _attach_live_progress(run_payload, repo.settings)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/runs/{run_id}/results")
+def get_run_results(run_id: str, repo: PlatformRepository = Depends(get_platform_repository)):
+    """Return persisted aggregate and per-query results for a run."""
+    try:
+        return repo.get_run_results(run_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/runs/{run_id}/artifacts")
+def get_run_artifacts(run_id: str, repo: PlatformRepository = Depends(get_platform_repository)):
+    """Return persisted artifact metadata for a run."""
+    try:
+        return repo.list_run_artifacts(run_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc

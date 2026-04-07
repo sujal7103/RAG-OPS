@@ -147,6 +147,7 @@ The platform stack expects a local `.env` file for infrastructure credentials su
 The persistence layer now stores datasets, benchmark configs, and run metadata in SQLAlchemy-backed tables, with Alembic scaffolding ready for managed migrations.
 Async run execution now supports queued benchmark runs, progress tracking, and cancellation through the service API, with a local thread fallback and a Dramatiq path for hosted environments.
 The Streamlit admin UI can now run in API-backed mode via `RAG_OPS_API_BASE_URL`, persisting datasets/configs/runs through the API and loading completed run artifacts from shared run storage.
+Completed runs now persist aggregate results, per-query details, and artifact metadata through the API as first-class run resources.
 
 ---
 

@@ -5,15 +5,19 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Sequence
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session, selectinload
 
 from rag_ops.cache import fingerprint_dataset
 from rag_ops.db.models import (
+    ArtifactModel,
     AuditEventModel,
     BenchmarkConfigModel,
+    BenchmarkResultAggregateModel,
+    BenchmarkResultPerQueryModel,
     BenchmarkRunModel,
     DatasetDocumentModel,
     DatasetModel,
@@ -22,7 +26,7 @@ from rag_ops.db.models import (
     ProviderCredentialModel,
     WorkspaceModel,
 )
-from rag_ops.models import Document, Query, normalize_documents, normalize_ground_truth, normalize_queries
+from rag_ops.models import BenchmarkArtifacts, Document, Query, normalize_documents, normalize_ground_truth, normalize_queries
 from rag_ops.security.auth import AuthContext, role_satisfies
 from rag_ops.security.credentials import encrypt_secret
 from rag_ops.settings import ServiceSettings
@@ -39,6 +43,44 @@ def _stable_payload(data: object) -> str:
 def fingerprint_config(config_json: dict[str, Any]) -> str:
     """Generate a stable configuration fingerprint."""
     return hashlib.sha256(_stable_payload(config_json).encode("utf-8")).hexdigest()[:16]
+
+
+def _config_label_from_row(row: dict[str, Any]) -> str:
+    return f"{row.get('chunker', '')} + {row.get('embedder', '')} + {row.get('retriever', '')}"
+
+
+def _artifact_entries(artifact: BenchmarkArtifacts) -> list[tuple[str, str, str]]:
+    return [
+        ("directory", artifact.directory, "directory"),
+        ("summary_json", artifact.summary_json, "json"),
+        ("results_csv", artifact.results_csv, "csv"),
+        ("results_json", artifact.results_json, "json"),
+        ("per_query_json", artifact.per_query_json, "json"),
+    ]
+
+
+def _artifact_size(uri: str) -> int | None:
+    path = Path(uri)
+    if not path.exists() or path.is_dir():
+        return None
+    return path.stat().st_size
+
+
+def _artifact_bundle(items: Sequence[dict[str, Any]]) -> dict[str, Any] | None:
+    if not items:
+        return None
+    by_kind = {item["kind"]: item for item in items}
+    required = {"directory", "summary_json", "results_csv", "results_json", "per_query_json"}
+    if not required.issubset(by_kind):
+        return None
+    return {
+        "run_id": by_kind["directory"]["benchmark_run_id"],
+        "directory": by_kind["directory"]["uri"],
+        "summary_json": by_kind["summary_json"]["uri"],
+        "results_csv": by_kind["results_csv"]["uri"],
+        "results_json": by_kind["results_json"]["uri"],
+        "per_query_json": by_kind["per_query_json"]["uri"],
+    }
 
 
 class PlatformRepository:
@@ -376,6 +418,123 @@ class PlatformRepository:
         self.session.refresh(run)
         return self._serialize_run(run)
 
+    def save_run_outputs(
+        self,
+        run_id: str,
+        *,
+        result_rows: Sequence[dict[str, Any]],
+        per_query_results: dict[str, Sequence[dict[str, Any]]],
+        artifact: BenchmarkArtifacts | None = None,
+    ) -> None:
+        """Persist aggregate rows, per-query details, and artifact metadata for a run."""
+        run = self._get_run_model(run_id, enforce_workspace=self.auth_context is not None)
+        self.session.execute(
+            delete(BenchmarkResultAggregateModel).where(
+                BenchmarkResultAggregateModel.benchmark_run_id == run.id
+            )
+        )
+        self.session.execute(
+            delete(BenchmarkResultPerQueryModel).where(
+                BenchmarkResultPerQueryModel.benchmark_run_id == run.id
+            )
+        )
+        self.session.execute(delete(ArtifactModel).where(ArtifactModel.benchmark_run_id == run.id))
+
+        for row in result_rows:
+            self.session.add(
+                BenchmarkResultAggregateModel(
+                    benchmark_run_id=run.id,
+                    config_label=_config_label_from_row(row),
+                    chunker=str(row.get("chunker", "")),
+                    embedder=str(row.get("embedder", "")),
+                    retriever=str(row.get("retriever", "")),
+                    metrics_json={
+                        "precision@k": float(row.get("precision@k", 0.0) or 0.0),
+                        "recall@k": float(row.get("recall@k", 0.0) or 0.0),
+                        "mrr": float(row.get("mrr", 0.0) or 0.0),
+                        "ndcg@k": float(row.get("ndcg@k", 0.0) or 0.0),
+                        "map@k": float(row.get("map@k", 0.0) or 0.0),
+                        "hit_rate@k": float(row.get("hit_rate@k", 0.0) or 0.0),
+                    },
+                    latency_ms=float(row.get("latency_ms", 0.0) or 0.0),
+                    num_chunks=int(row.get("num_chunks", 0) or 0),
+                    avg_chunk_size=float(row.get("avg_chunk_size", 0.0) or 0.0),
+                    error=str(row.get("error", "") or ""),
+                )
+            )
+
+        for config_label, details in per_query_results.items():
+            for detail in details:
+                self.session.add(
+                    BenchmarkResultPerQueryModel(
+                        benchmark_run_id=run.id,
+                        config_label=config_label,
+                        query_id=str(detail.get("query_id", "")),
+                        payload_json=dict(detail),
+                    )
+                )
+
+        if artifact is not None:
+            for kind, uri, fmt in _artifact_entries(artifact):
+                size_bytes = _artifact_size(uri)
+                self.session.add(
+                    ArtifactModel(
+                        benchmark_run_id=run.id,
+                        kind=kind,
+                        uri=uri,
+                        format=fmt,
+                        size_bytes=size_bytes,
+                    )
+                )
+
+        self.session.commit()
+
+    def get_run_results(self, run_id: str) -> dict[str, Any]:
+        """Return persisted aggregate and per-query results for a run."""
+        run = self._get_run_model(run_id)
+        aggregate_rows = self.session.execute(
+            select(BenchmarkResultAggregateModel)
+            .where(BenchmarkResultAggregateModel.benchmark_run_id == run.id)
+            .order_by(
+                BenchmarkResultAggregateModel.chunker.asc(),
+                BenchmarkResultAggregateModel.embedder.asc(),
+                BenchmarkResultAggregateModel.retriever.asc(),
+            )
+        ).scalars()
+        per_query_rows = self.session.execute(
+            select(BenchmarkResultPerQueryModel)
+            .where(BenchmarkResultPerQueryModel.benchmark_run_id == run.id)
+            .order_by(
+                BenchmarkResultPerQueryModel.config_label.asc(),
+                BenchmarkResultPerQueryModel.query_id.asc(),
+            )
+        ).scalars()
+
+        per_query_payload: dict[str, list[dict[str, Any]]] = {}
+        for row in per_query_rows:
+            per_query_payload.setdefault(row.config_label, []).append(dict(row.payload_json))
+
+        return {
+            "run_id": run.id,
+            "items": [self._serialize_aggregate_result(item) for item in aggregate_rows],
+            "per_query_results": per_query_payload,
+        }
+
+    def list_run_artifacts(self, run_id: str) -> dict[str, Any]:
+        """Return persisted artifact metadata for a run."""
+        run = self._get_run_model(run_id)
+        artifacts = self.session.execute(
+            select(ArtifactModel)
+            .where(ArtifactModel.benchmark_run_id == run.id)
+            .order_by(ArtifactModel.created_at.asc())
+        ).scalars()
+        items = [self._serialize_artifact(item) for item in artifacts]
+        return {
+            "run_id": run.id,
+            "items": items,
+            "bundle": _artifact_bundle(items),
+        }
+
     def fail_run(self, run_id: str, error_summary: str) -> dict[str, Any]:
         """Mark a run as failed."""
         run = self._get_run_model(run_id, enforce_workspace=self.auth_context is not None)
@@ -617,4 +776,34 @@ class PlatformRepository:
             "created_at": _serialize_datetime(credential.created_at),
             "updated_at": _serialize_datetime(credential.updated_at),
             "deleted_at": _serialize_datetime(credential.deleted_at),
+        }
+
+    def _serialize_aggregate_result(self, result: BenchmarkResultAggregateModel) -> dict[str, Any]:
+        metrics = dict(result.metrics_json)
+        return {
+            "chunker": result.chunker,
+            "embedder": result.embedder,
+            "retriever": result.retriever,
+            "precision@k": metrics.get("precision@k", 0.0),
+            "recall@k": metrics.get("recall@k", 0.0),
+            "mrr": metrics.get("mrr", 0.0),
+            "ndcg@k": metrics.get("ndcg@k", 0.0),
+            "map@k": metrics.get("map@k", 0.0),
+            "hit_rate@k": metrics.get("hit_rate@k", 0.0),
+            "latency_ms": result.latency_ms,
+            "num_chunks": result.num_chunks,
+            "avg_chunk_size": result.avg_chunk_size,
+            "error": result.error,
+            "config_label": result.config_label,
+        }
+
+    def _serialize_artifact(self, artifact: ArtifactModel) -> dict[str, Any]:
+        return {
+            "id": artifact.id,
+            "benchmark_run_id": artifact.benchmark_run_id,
+            "kind": artifact.kind,
+            "uri": artifact.uri,
+            "format": artifact.format,
+            "size_bytes": artifact.size_bytes,
+            "created_at": _serialize_datetime(artifact.created_at),
         }
