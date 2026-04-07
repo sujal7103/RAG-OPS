@@ -28,7 +28,12 @@ from rag_ops.db.models import (
 )
 from rag_ops.models import BenchmarkArtifacts, Document, Query, normalize_documents, normalize_ground_truth, normalize_queries
 from rag_ops.security.auth import AuthContext, role_satisfies
-from rag_ops.security.credentials import decrypt_secret, encrypt_secret
+from rag_ops.security.credentials import (
+    credential_needs_rotation,
+    decrypt_secret,
+    encrypt_secret,
+    rotate_secret,
+)
 from rag_ops.settings import ServiceSettings
 
 
@@ -770,7 +775,7 @@ class PlatformRepository:
             raise PermissionError("Provider credentials require an authenticated workspace context")
 
         workspace = self.get_workspace()
-        ciphertext, key_id = encrypt_secret(secret_value, self.settings.credential_key)
+        ciphertext, key_id = encrypt_secret(secret_value, self.settings)
         credential = ProviderCredentialModel(
             workspace_id=workspace.id,
             created_by_user_id=self.auth_context.user_id,
@@ -787,6 +792,38 @@ class PlatformRepository:
             target_type="provider_credential",
             target_id=credential.id,
             metadata={"provider": provider, "label": label},
+        )
+        self.session.commit()
+        return self._serialize_provider_credential(credential)
+
+    def rotate_provider_credential(self, credential_id: str) -> dict[str, Any]:
+        """Re-encrypt an existing provider credential with the active keyring key."""
+        workspace = self.get_workspace()
+        credential = self.session.execute(
+            select(ProviderCredentialModel).where(
+                ProviderCredentialModel.workspace_id == workspace.id,
+                ProviderCredentialModel.id == credential_id,
+                ProviderCredentialModel.deleted_at.is_(None),
+            )
+        ).scalar_one_or_none()
+        if credential is None:
+            raise LookupError(f"Provider credential {credential_id} not found")
+
+        if not credential_needs_rotation(credential.key_id, self.settings):
+            return self._serialize_provider_credential(credential)
+
+        credential.ciphertext, credential.key_id = rotate_secret(
+            credential.ciphertext,
+            self.settings,
+            key_id=credential.key_id,
+        )
+        self.session.commit()
+        self.session.refresh(credential)
+        self._record_audit_event(
+            action="provider_credential.rotated",
+            target_type="provider_credential",
+            target_id=credential.id,
+            metadata={"provider": credential.provider, "label": credential.label, "key_id": credential.key_id},
         )
         self.session.commit()
         return self._serialize_provider_credential(credential)
@@ -859,7 +896,11 @@ class PlatformRepository:
             ).scalar_one_or_none()
             if credential is None:
                 raise LookupError(f"Provider credential {credential_id} not found")
-            api_keys[provider] = decrypt_secret(credential.ciphertext, self.settings.credential_key)
+            api_keys[provider] = decrypt_secret(
+                credential.ciphertext,
+                self.settings,
+                key_id=credential.key_id,
+            )
         return api_keys
 
     def _validate_report_metric(self, metric: str) -> str:
@@ -975,6 +1016,7 @@ class PlatformRepository:
             "provider": credential.provider,
             "label": credential.label,
             "key_id": credential.key_id,
+            "needs_rotation": credential_needs_rotation(credential.key_id, self.settings),
             "created_by_user_id": credential.created_by_user_id,
             "created_at": _serialize_datetime(credential.created_at),
             "updated_at": _serialize_datetime(credential.updated_at),

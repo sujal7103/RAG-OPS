@@ -71,3 +71,18 @@ def delete_provider_credential(
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/provider-credentials/{credential_id}/rotate")
+def rotate_provider_credential(
+    credential_id: str,
+    repo: PlatformRepository = Depends(get_platform_repository),
+):
+    """Re-encrypt a provider credential with the active keyring key."""
+    try:
+        repo.require_role("workspace_admin")
+        return repo.rotate_provider_credential(credential_id)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc

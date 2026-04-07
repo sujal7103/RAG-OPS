@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import threading
 import time
+from pathlib import Path
 
 from rag_ops.db.session import get_session_factory
 from rag_ops.metrics_registry import get_metrics_registry
+from rag_ops.object_store import ObjectStoreClient
 from rag_ops.observability import reset_run_id, reset_workspace_id, set_run_id, set_workspace_id
 from rag_ops.repositories.platform import PlatformRepository
 from rag_ops.results_frame import results_frame_to_records
@@ -37,6 +40,33 @@ def _is_retryable_error(exc: Exception) -> bool:
         "try again",
     ]
     return any(token in message for token in retry_tokens)
+
+
+def _record_dead_letter(
+    run_id: str,
+    *,
+    settings: ServiceSettings,
+    execution_context: dict[str, object],
+    attempt_count: int,
+    error_summary: str,
+) -> str | None:
+    """Persist a dead-letter record for a terminally failed run."""
+    if not settings.dead_letter_enabled:
+        return None
+
+    directory = Path(ensure_directory(settings.dead_letter_dir))
+    path = directory / f"{run_id}.json"
+    payload = {
+        "run_id": run_id,
+        "workspace_id": execution_context.get("workspace_id"),
+        "credential_bindings": execution_context.get("credential_bindings", {}),
+        "config": execution_context.get("config", {}),
+        "attempt_count": attempt_count,
+        "error_summary": error_summary,
+        "recorded_at": time.time(),
+    }
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True))
+    return str(path)
 
 
 def execute_benchmark_run(run_id: str, settings: ServiceSettings | None = None) -> None:
@@ -139,11 +169,20 @@ def execute_benchmark_run(run_id: str, settings: ServiceSettings | None = None) 
                     continue
 
                 logger.exception("Run %s failed", run_id)
+                dead_letter_path = _record_dead_letter(
+                    run_id,
+                    settings=active_settings,
+                    execution_context=execution_context,
+                    attempt_count=attempt_count,
+                    error_summary=str(exc),
+                )
                 with session_factory(active_settings)() as session:
                     repo = PlatformRepository(session, active_settings)
                     repo.fail_run(run_id, str(exc))
                 state_store.set_progress(run_id, progress_pct=100, stage="failed")
                 metrics.inc_counter("rag_ops_benchmark_runs_total", labels={"status": "failed"})
+                if dead_letter_path:
+                    metrics.inc_counter("rag_ops_dead_letters_total")
                 metrics.observe_histogram(
                     "rag_ops_benchmark_run_duration_seconds",
                     value=time.perf_counter() - started_at,
@@ -151,13 +190,18 @@ def execute_benchmark_run(run_id: str, settings: ServiceSettings | None = None) 
                 )
                 return
 
+            uploaded_artifact = captured_artifact["value"]
+            if uploaded_artifact is not None:
+                uploaded_artifact = ObjectStoreClient(active_settings).upload_artifact_bundle(
+                    uploaded_artifact
+                )
             with session_factory(active_settings)() as session:
                 repo = PlatformRepository(session, active_settings)
                 repo.save_run_outputs(
                     run_id,
                     result_rows=results_frame_to_records(results_frame),
                     per_query_results=per_query_results,
-                    artifact=captured_artifact["value"],
+                    artifact=uploaded_artifact,
                 )
                 repo.complete_run(run_id)
             state_store.set_progress(run_id, progress_pct=100, stage="completed")

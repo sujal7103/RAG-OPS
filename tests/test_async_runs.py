@@ -338,3 +338,103 @@ def test_compare_and_leaderboard_endpoints_return_historical_results(monkeypatch
     assert leaderboard_response.status_code == 200
     leaderboard_payload = leaderboard_response.json()
     assert leaderboard_payload["items"][0]["run_id"] == second_run
+
+
+def test_execute_benchmark_run_persists_dead_letter_on_terminal_failure(monkeypatch, tmp_path: Path):
+    """Terminal worker failures should write a dead-letter record for ops review."""
+    reset_engine_cache()
+    settings = _build_settings(
+        tmp_path,
+        RAG_OPS_RUN_MAX_ATTEMPTS="1",
+        RAG_OPS_DEAD_LETTER_DIR=str(tmp_path / "dead_letters"),
+    )
+
+    with TestClient(create_app(settings)) as client:
+        _, dataset_version_id, config_id = _seed_dataset_and_config(client)
+        run_id = client.post(
+            "/v1/runs",
+            json={
+                "dataset_version_id": dataset_version_id,
+                "benchmark_config_id": config_id,
+            },
+        ).json()["id"]
+
+    def broken_run_benchmark(**kwargs):
+        raise RuntimeError("hard failure")
+
+    monkeypatch.setattr("rag_ops.services.benchmark_runs.run_benchmark", broken_run_benchmark)
+
+    execute_benchmark_run(run_id, settings)
+
+    with get_session_factory(settings)() as session:
+        repo = PlatformRepository(session, settings)
+        run_payload = repo.get_run(run_id)
+
+    dead_letter_path = Path(settings.dead_letter_dir) / f"{run_id}.json"
+    assert run_payload["status"] == "failed"
+    assert dead_letter_path.exists()
+
+
+def test_execute_benchmark_run_uploads_artifacts_to_object_store(monkeypatch, tmp_path: Path):
+    """When object storage is enabled, persisted artifact URIs should be rewritten to object-store paths."""
+    reset_engine_cache()
+    settings = _build_settings(
+        tmp_path,
+        RAG_OPS_OBJECT_STORE_ENABLED="true",
+        RAG_OPS_OBJECT_STORE_BUCKET="rag-ops-test",
+    )
+
+    with TestClient(create_app(settings)) as client:
+        _, dataset_version_id, config_id = _seed_dataset_and_config(client)
+        run_id = client.post(
+            "/v1/runs",
+            json={
+                "dataset_version_id": dataset_version_id,
+                "benchmark_config_id": config_id,
+            },
+        ).json()["id"]
+
+    def fake_run_benchmark(**kwargs):
+        if kwargs.get("artifact_callback") is not None:
+            artifact_dir = tmp_path / "runs" / kwargs["run_id"]
+            artifact_dir.mkdir(parents=True, exist_ok=True)
+            summary_json = artifact_dir / "summary.json"
+            results_csv = artifact_dir / "results.csv"
+            results_json = artifact_dir / "results.json"
+            per_query_json = artifact_dir / "per_query.json"
+            summary_json.write_text("{}")
+            results_csv.write_text("chunker,embedder,retriever\n")
+            results_json.write_text("[]")
+            per_query_json.write_text("{}")
+            kwargs["artifact_callback"](
+                BenchmarkArtifacts(
+                    run_id=kwargs["run_id"],
+                    directory=str(artifact_dir),
+                    summary_json=str(summary_json),
+                    results_csv=str(results_csv),
+                    results_json=str(results_json),
+                    per_query_json=str(per_query_json),
+                )
+            )
+        return build_results_frame([]), {}
+
+    def fake_upload(self, artifact):
+        return BenchmarkArtifacts(
+            run_id=artifact.run_id,
+            directory=f"s3://rag-ops-test/runs/{artifact.run_id}",
+            summary_json=f"s3://rag-ops-test/runs/{artifact.run_id}/summary.json",
+            results_csv=f"s3://rag-ops-test/runs/{artifact.run_id}/results.csv",
+            results_json=f"s3://rag-ops-test/runs/{artifact.run_id}/results.json",
+            per_query_json=f"s3://rag-ops-test/runs/{artifact.run_id}/per_query.json",
+        )
+
+    monkeypatch.setattr("rag_ops.services.benchmark_runs.run_benchmark", fake_run_benchmark)
+    monkeypatch.setattr("rag_ops.object_store.ObjectStoreClient.upload_artifact_bundle", fake_upload)
+
+    execute_benchmark_run(run_id, settings)
+
+    with get_session_factory(settings)() as session:
+        repo = PlatformRepository(session, settings)
+        artifacts_payload = repo.list_run_artifacts(run_id)
+
+    assert artifacts_payload["bundle"]["results_json"].startswith("s3://rag-ops-test/")

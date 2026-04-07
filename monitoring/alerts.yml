@@ -1,0 +1,26 @@
+groups:
+  - name: rag_ops
+    rules:
+      - alert: RagOpsApiDown
+        expr: up{job="rag_ops_api"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: RAG-OPS API is down
+
+      - alert: RagOpsWorkerDown
+        expr: up{job="rag_ops_worker"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: RAG-OPS worker metrics endpoint is down
+
+      - alert: RagOpsDeadLettersGrowing
+        expr: increase(rag_ops_dead_letters_total[15m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Dead letters have been recorded in the last 15 minutes

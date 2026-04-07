@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pydantic import BaseModel, Field
 
 from rag_ops.db.session import ping_database
+from rag_ops.object_store import ObjectStoreClient
 from rag_ops.redis_client import RedisClient
 from rag_ops.settings import ServiceSettings
 
@@ -87,6 +88,25 @@ async def build_readiness_report(
             )
     else:
         components["redis"] = ComponentStatus(status="skipped", detail="redis disabled")
+
+    if settings.object_store_enabled:
+        start = time.perf_counter()
+        object_store_ready = ObjectStoreClient(settings).ping()
+        if object_store_ready:
+            components["object_store"] = ComponentStatus(
+                status="ok",
+                detail="object store reachable",
+                latency_ms=(time.perf_counter() - start) * 1000,
+            )
+        else:
+            overall_status = "degraded"
+            components["object_store"] = ComponentStatus(
+                status="failed",
+                detail="object store unreachable",
+                latency_ms=(time.perf_counter() - start) * 1000,
+            )
+    else:
+        components["object_store"] = ComponentStatus(status="skipped", detail="object store disabled")
 
     warm_status = startup_state.get("warm_status", "skipped")
     components["warmup"] = ComponentStatus(

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import Mapping
+from typing import Any, Mapping
 
 from rag_ops.models import BenchmarkConfig
 
@@ -30,13 +30,38 @@ def _secret_value(st, secret_name: str, env_name: str) -> str:
         return ""
 
 
-def render_sidebar(st, *, api_mode_enabled: bool = False) -> SidebarSelections:
+def _credential_options(
+    credentials: list[dict[str, Any]],
+    *,
+    provider: str,
+) -> list[dict[str, str]]:
+    return [item for item in credentials if str(item.get("provider", "")).lower() == provider]
+
+
+def render_sidebar(st, *, api_mode_enabled: bool = False, api_client=None) -> SidebarSelections:
     """Render the sidebar and return the chosen benchmark settings."""
+    credentials: list[dict[str, Any]] = []
+    identity: dict[str, Any] | None = None
+    if api_mode_enabled and api_client is not None:
+        try:
+            identity = api_client.get_me()
+        except Exception:
+            identity = None
+        try:
+            credentials = list(api_client.list_provider_credentials().get("items", []))
+        except Exception:
+            credentials = []
+
     with st.sidebar:
         st.markdown("## RAG-OPS")
         st.caption("Configure your benchmark below")
         if api_mode_enabled:
             st.caption("API-backed admin mode is enabled")
+            if identity:
+                st.caption(
+                    f"Workspace: `{identity.get('workspace_slug', '-')}` | "
+                    f"Role: `{identity.get('role', '-')}`"
+                )
 
         st.markdown(
             '<div class="sidebar-section"><div class="sidebar-section-title">Chunking Strategies</div>',
@@ -96,11 +121,67 @@ def render_sidebar(st, *, api_mode_enabled: bool = False) -> SidebarSelections:
         st.markdown("</div>", unsafe_allow_html=True)
 
         api_keys: dict[str, str] = {}
+        credential_bindings: dict[str, str] = {}
         if api_mode_enabled and (embed_openai_small or embed_openai_large or embed_cohere):
             st.info(
                 "API mode uses server-side provider credentials or environment variables. "
                 "Sidebar API keys are only used in standalone local mode."
             )
+            with st.expander("Provider Credentials", expanded=False):
+                if api_client is None:
+                    st.caption("API client unavailable.")
+                elif identity and identity.get("role") not in {"workspace_admin", "workspace_owner"}:
+                    st.caption("Provider credential management is available to workspace admins only.")
+                else:
+                    if credentials:
+                        for item in credentials:
+                            col1, col2, col3 = st.columns([3, 1, 1])
+                            col1.caption(
+                                f"{item.get('label')} | {item.get('provider')} | key `{item.get('key_id')}`"
+                            )
+                            if item.get("needs_rotation"):
+                                col1.warning("Needs rotation")
+                            if col2.button("Rotate", key=f"rotate-{item['id']}"):
+                                api_client.rotate_provider_credential(str(item["id"]))
+                                st.rerun()
+                            if col3.button("Delete", key=f"delete-{item['id']}"):
+                                api_client.delete_provider_credential(str(item["id"]))
+                                st.rerun()
+                    else:
+                        st.caption("No workspace credentials saved yet.")
+
+                    with st.form("create-provider-credential", clear_on_submit=True):
+                        provider = st.selectbox("Provider", ["openai", "cohere"], key="provider-create")
+                        label = st.text_input("Label", key="provider-label")
+                        secret = st.text_input("Secret", type="password", key="provider-secret")
+                        if st.form_submit_button("Save Credential"):
+                            if provider and label.strip() and secret.strip():
+                                api_client.create_provider_credential(
+                                    provider=provider,
+                                    label=label.strip(),
+                                    secret=secret.strip(),
+                                )
+                                st.rerun()
+
+                    openai_credentials = _credential_options(credentials, provider="openai")
+                    if embed_openai_small or embed_openai_large:
+                        openai_labels = ["Use server env/default"] + [
+                            f"{item['label']} ({item['key_id']})" for item in openai_credentials
+                        ]
+                        selected_openai = st.selectbox("OpenAI Credential", openai_labels, key="openai-credential")
+                        if selected_openai != "Use server env/default":
+                            selected_index = openai_labels.index(selected_openai) - 1
+                            credential_bindings["openai"] = str(openai_credentials[selected_index]["id"])
+
+                    cohere_credentials = _credential_options(credentials, provider="cohere")
+                    if embed_cohere:
+                        cohere_labels = ["Use server env/default"] + [
+                            f"{item['label']} ({item['key_id']})" for item in cohere_credentials
+                        ]
+                        selected_cohere = st.selectbox("Cohere Credential", cohere_labels, key="cohere-credential")
+                        if selected_cohere != "Use server env/default":
+                            selected_index = cohere_labels.index(selected_cohere) - 1
+                            credential_bindings["cohere"] = str(cohere_credentials[selected_index]["id"])
         elif embed_openai_small or embed_openai_large:
             default_openai_key = _secret_value(st, "OPENAI_API_KEY", "OPENAI_API_KEY")
             api_keys["openai"] = st.text_input(
@@ -202,6 +283,7 @@ def render_sidebar(st, *, api_mode_enabled: bool = False) -> SidebarSelections:
             retriever_names=tuple(dict.fromkeys(retriever_names)),
             top_k=top_k,
             api_keys=api_keys,
+            credential_bindings=credential_bindings,
             enable_disk_cache=enable_disk_cache,
             persist_run_artifacts=persist_run_artifacts,
         )

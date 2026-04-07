@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from typing import Any
+from urllib import parse
 from urllib import error, request
 
 from rag_ops.models import BenchmarkArtifacts
@@ -70,7 +71,13 @@ class RagOpsApiClient:
             },
         )
 
-    def create_run(self, *, dataset_version_id: str, benchmark_config_id: str) -> dict[str, Any]:
+    def create_run(
+        self,
+        *,
+        dataset_version_id: str,
+        benchmark_config_id: str,
+        credential_bindings: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
         """Queue a benchmark run through the API."""
         return self._request_json(
             "POST",
@@ -78,8 +85,17 @@ class RagOpsApiClient:
             {
                 "dataset_version_id": dataset_version_id,
                 "benchmark_config_id": benchmark_config_id,
+                "credential_bindings": credential_bindings or {},
             },
         )
+
+    def get_me(self) -> dict[str, Any]:
+        """Return the current identity resolved by the API."""
+        return self._request_json("GET", "/v1/me")
+
+    def list_runs(self) -> dict[str, Any]:
+        """Return historical runs in the current workspace."""
+        return self._request_json("GET", "/v1/runs")
 
     def get_run(self, run_id: str) -> dict[str, Any]:
         """Fetch the latest state for one benchmark run."""
@@ -93,6 +109,44 @@ class RagOpsApiClient:
         """Fetch persisted artifact metadata for a run."""
         return self._request_json("GET", f"/v1/runs/{run_id}/artifacts")
 
+    def compare_runs(self, *, run_ids: list[str], metric: str = "recall@k") -> dict[str, Any]:
+        """Compare multiple completed runs in the current workspace."""
+        return self._request_json(
+            "POST",
+            "/v1/runs/compare",
+            {"run_ids": run_ids, "metric": metric},
+        )
+
+    def get_workspace_leaderboard(
+        self,
+        *,
+        metric: str = "recall@k",
+        limit: int = 20,
+    ) -> dict[str, Any]:
+        """Return the workspace leaderboard for a chosen metric."""
+        query = parse.urlencode({"metric": metric, "limit": limit})
+        return self._request_json("GET", f"/v1/reports/leaderboard?{query}")
+
+    def list_provider_credentials(self) -> dict[str, Any]:
+        """Return active provider credentials in the current workspace."""
+        return self._request_json("GET", "/v1/provider-credentials")
+
+    def create_provider_credential(self, *, provider: str, label: str, secret: str) -> dict[str, Any]:
+        """Create a provider credential through the API."""
+        return self._request_json(
+            "POST",
+            "/v1/provider-credentials",
+            {"provider": provider, "label": label, "secret": secret},
+        )
+
+    def delete_provider_credential(self, credential_id: str) -> None:
+        """Delete a provider credential."""
+        self._request_json("DELETE", f"/v1/provider-credentials/{credential_id}")
+
+    def rotate_provider_credential(self, credential_id: str) -> dict[str, Any]:
+        """Rotate a provider credential onto the active keyring key."""
+        return self._request_json("POST", f"/v1/provider-credentials/{credential_id}/rotate")
+
     def _request_json(
         self,
         method: str,
@@ -105,8 +159,9 @@ class RagOpsApiClient:
             body = json.dumps(payload).encode("utf-8")
             headers["content-type"] = "application/json"
 
+        request_path = path if path.startswith("/") else f"/{path}"
         req = request.Request(
-            f"{self.base_url}{path}",
+            f"{self.base_url}{request_path}",
             data=body,
             headers=headers,
             method=method,

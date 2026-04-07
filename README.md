@@ -46,7 +46,7 @@ Doc-Aware  ─┘  OpenAI  ─┘          └─ Hybrid (RRF)
 | **Visual Dashboard** | Leaderboard, heatmaps, ranked charts, per-query drill-down |
 | **Sample Data** | 10 Python tutorial docs + 15 queries — run a demo in 30 seconds |
 | **Export** | Download results as CSV or JSON |
-| **Operational Features** | Disk cache, saved run artifacts, CLI entrypoint, Dockerfile, CI workflow |
+| **Operational Features** | Disk cache, saved run artifacts, CLI entrypoint, Dockerfile, CI workflow, Prometheus metrics |
 
 ---
 
@@ -148,6 +148,8 @@ The persistence layer now stores datasets, benchmark configs, and run metadata i
 Async run execution now supports queued benchmark runs, progress tracking, and cancellation through the service API, with a local thread fallback and a Dramatiq path for hosted environments.
 The Streamlit admin UI can now run in API-backed mode via `RAG_OPS_API_BASE_URL`, persisting datasets/configs/runs through the API and loading completed run artifacts from shared run storage.
 Completed runs now persist aggregate results, per-query details, and artifact metadata through the API as first-class run resources.
+The service layer now also supports OIDC/JWKS auth mode, credential key rotation, workspace-bound provider credentials for run execution, and historical comparison/leaderboard APIs.
+For containerized staging/production setup guidance, see [DEPLOYMENT.md](DEPLOYMENT.md).
 
 ---
 
@@ -201,8 +203,10 @@ rag-ops/
 │   ├── db/                         # SQLAlchemy engine and persistence helpers
 │   ├── models.py                   # Typed dataclasses
 │   ├── observability.py            # Request IDs and structured logging
+│   ├── object_store.py             # S3-compatible artifact uploads
 │   ├── redis_client.py             # Thin Redis wrapper
 │   ├── repositories/               # Persistence repositories
+│   ├── metrics_server.py           # Worker metrics endpoint
 │   ├── cache.py                    # Disk caching helpers
 │   ├── experiment_store.py         # Saved run artifacts
 │   ├── chunkers.py                 # 4 chunking strategies
@@ -223,6 +227,7 @@ rag-ops/
 │       ├── corpus/                 # 10 .txt documents
 │       └── queries.json            # 15 queries with ground truth
 ├── tests/                          # Pytest test suite
+├── monitoring/                     # Prometheus + Grafana local provisioning
 └── .github/workflows/ci.yml        # CI pipeline
 ```
 

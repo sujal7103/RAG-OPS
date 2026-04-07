@@ -78,6 +78,11 @@ def get_default_state_dir() -> str:
     return os.getenv("RAG_OPS_STATE_DIR", ".rag_ops")
 
 
+def get_default_dead_letter_dir() -> str:
+    """Return the default dead-letter storage directory path."""
+    return os.getenv("RAG_OPS_DEAD_LETTER_DIR", ".rag_ops_dead_letters")
+
+
 def get_default_database_url() -> str:
     """Return the default database URL used by the service layer."""
     state_dir = ensure_directory(get_default_state_dir())
@@ -138,9 +143,17 @@ class ServiceSettings(BaseSettings):
         alias="RAG_OPS_REDIS_SOCKET_TIMEOUT_SECONDS",
     )
 
+    metrics_enabled: bool = Field(False, alias="RAG_OPS_METRICS_ENABLED")
+    metrics_host: str = Field("0.0.0.0", alias="RAG_OPS_METRICS_HOST")
+    worker_metrics_port: int = Field(9101, alias="RAG_OPS_WORKER_METRICS_PORT")
+
     object_store_enabled: bool = Field(False, alias="RAG_OPS_OBJECT_STORE_ENABLED")
     object_store_endpoint: str = Field("http://localhost:9000", alias="RAG_OPS_OBJECT_STORE_ENDPOINT")
     object_store_bucket: str = Field("rag-ops", alias="RAG_OPS_OBJECT_STORE_BUCKET")
+    object_store_region: str = Field("us-east-1", alias="RAG_OPS_OBJECT_STORE_REGION")
+    object_store_access_key: str = Field("", alias="RAG_OPS_OBJECT_STORE_ACCESS_KEY")
+    object_store_secret_key: str = Field("", alias="RAG_OPS_OBJECT_STORE_SECRET_KEY")
+    object_store_key_prefix: str = Field("runs", alias="RAG_OPS_OBJECT_STORE_KEY_PREFIX")
 
     worker_poll_interval_seconds: float = Field(
         2.0,
@@ -153,6 +166,8 @@ class ServiceSettings(BaseSettings):
     )
     queue_backend: str = Field("thread", alias="RAG_OPS_QUEUE_BACKEND")
     run_state_ttl_seconds: int = Field(3600, alias="RAG_OPS_RUN_STATE_TTL_SECONDS")
+    dead_letter_enabled: bool = Field(True, alias="RAG_OPS_DEAD_LETTER_ENABLED")
+    dead_letter_dir: str = Field(default_factory=get_default_dead_letter_dir, alias="RAG_OPS_DEAD_LETTER_DIR")
     warm_dependencies_on_startup: bool = Field(
         False,
         alias="RAG_OPS_WARM_DEPENDENCIES_ON_STARTUP",
@@ -179,6 +194,10 @@ class ServiceSettings(BaseSettings):
         alias="RAG_OPS_AUTH_JWT_WORKSPACE_CLAIM",
     )
     auth_jwt_role_claim: str = Field("role", alias="RAG_OPS_AUTH_JWT_ROLE_CLAIM")
+    auth_oidc_jwks_url: str = Field("", alias="RAG_OPS_AUTH_OIDC_JWKS_URL")
+    auth_oidc_discovery_url: str = Field("", alias="RAG_OPS_AUTH_OIDC_DISCOVERY_URL")
+    auth_oidc_email_claim: str = Field("email", alias="RAG_OPS_AUTH_OIDC_EMAIL_CLAIM")
+    auth_oidc_name_claim: str = Field("name", alias="RAG_OPS_AUTH_OIDC_NAME_CLAIM")
     dev_default_user_email: str = Field(
         "owner@ragops.local",
         alias="RAG_OPS_DEV_DEFAULT_USER_EMAIL",
@@ -195,6 +214,8 @@ class ServiceSettings(BaseSettings):
         default_factory=get_default_credential_key,
         alias="RAG_OPS_CREDENTIAL_KEY",
     )
+    credential_active_key_id: str = Field("default", alias="RAG_OPS_CREDENTIAL_ACTIVE_KEY_ID")
+    credential_keys_json: str = Field("", alias="RAG_OPS_CREDENTIAL_KEYS_JSON")
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

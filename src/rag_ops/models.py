@@ -89,6 +89,7 @@ class BenchmarkConfig:
     retriever_names: tuple[str, ...]
     top_k: int
     api_keys: Mapping[str, str] = field(default_factory=dict)
+    credential_bindings: Mapping[str, str] = field(default_factory=dict)
     enable_disk_cache: bool = True
     persist_run_artifacts: bool = True
 
@@ -192,4 +193,3 @@ def redact_api_keys(api_keys: Mapping[str, str]) -> dict[str, str]:
         else:
             redacted[name] = f"{value[:3]}...{value[-3:]}"
     return redacted
-

@@ -17,7 +17,7 @@ from rag_ops.ui.api_client import (
     load_run_outputs,
 )
 from rag_ops.ui.data_views import render_data_loader, render_loaded_data_summary
-from rag_ops.ui.results import render_results
+from rag_ops.ui.results import render_api_reports, render_results
 from rag_ops.ui.sidebar import render_sidebar
 from rag_ops.ui.state import init_session_state, store_benchmark_results
 from rag_ops.ui.styles import apply_page_style, render_header
@@ -53,6 +53,7 @@ def _run_benchmark_via_api(st, api_client, config) -> None:
         run_payload = api_client.create_run(
             dataset_version_id=st.session_state.dataset_version_id,
             benchmark_config_id=str(config_payload["id"]),
+            credential_bindings=dict(config.credential_bindings),
         )
         run_id = str(run_payload["id"])
         st.session_state.run_id = run_id
@@ -107,7 +108,7 @@ def run_app() -> None:
     init_session_state(st)
     api_client = get_streamlit_api_client()
     api_mode_enabled = api_client is not None
-    sidebar = render_sidebar(st, api_mode_enabled=api_mode_enabled)
+    sidebar = render_sidebar(st, api_mode_enabled=api_mode_enabled, api_client=api_client)
 
     render_header(st)
 
@@ -239,3 +240,5 @@ def run_app() -> None:
             config.top_k,
             run_artifacts=st.session_state.run_artifacts,
         )
+        if api_mode_enabled and api_client is not None:
+            render_api_reports(st, api_client, current_run_id=st.session_state.run_id)

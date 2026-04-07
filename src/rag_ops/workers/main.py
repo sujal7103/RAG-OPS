@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 
+from rag_ops.metrics_server import start_metrics_http_server
 from rag_ops.observability import configure_logging
 from rag_ops.settings import ServiceSettings, get_settings
 
@@ -15,6 +16,16 @@ def run_worker(settings: ServiceSettings | None = None) -> None:
     active_settings = settings or get_settings()
     configure_logging(active_settings)
     backend = active_settings.queue_backend.lower()
+    if active_settings.metrics_enabled:
+        start_metrics_http_server(
+            host=active_settings.metrics_host,
+            port=active_settings.worker_metrics_port,
+        )
+        logger.info(
+            "Worker metrics server listening on %s:%s",
+            active_settings.metrics_host,
+            active_settings.worker_metrics_port,
+        )
     logger.info("Starting RAG-OPS worker using backend=%s", backend)
 
     if backend == "dramatiq":

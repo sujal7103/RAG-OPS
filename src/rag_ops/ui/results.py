@@ -262,3 +262,87 @@ def render_results(st, results_df, per_query_results, top_k, run_artifacts=None)
         else:
             st.info("Run a benchmark to see per-query details.")
 
+
+def render_api_reports(st, api_client, *, current_run_id: str | None = None) -> None:
+    """Render historical comparison and leaderboard views in API mode."""
+    import pandas as pd
+
+    from rag_ops.ui.api_client import ApiClientError
+
+    st.markdown('<hr class="soft-divider">', unsafe_allow_html=True)
+    st.markdown("### Historical Reports")
+
+    try:
+        runs_payload = api_client.list_runs()
+        leaderboard_payload = api_client.get_workspace_leaderboard(metric="recall@k", limit=10)
+    except ApiClientError as exc:
+        st.warning(str(exc))
+        return
+
+    run_items = list(runs_payload.get("items", []))
+    completed_runs = [item for item in run_items if item.get("status") == "completed"]
+
+    tab_leaderboard, tab_compare = st.tabs(["Workspace Leaderboard", "Run Compare"])
+
+    with tab_leaderboard:
+        leaderboard_items = list(leaderboard_payload.get("items", []))
+        if leaderboard_items:
+            leaderboard_df = pd.DataFrame(leaderboard_items)
+            st.dataframe(leaderboard_df, use_container_width=True, hide_index=True)
+        else:
+            st.info("No completed historical runs are available yet.")
+
+    with tab_compare:
+        if len(completed_runs) < 2:
+            st.info("At least two completed runs are required for historical comparison.")
+            return
+
+        run_labels = {
+            item["id"]: (
+                f"{item['id']} | {item.get('status')} | "
+                f"{item.get('created_at', '')}"
+            )
+            for item in completed_runs
+        }
+        default_left = current_run_id if current_run_id in run_labels else completed_runs[0]["id"]
+        default_right = next(
+            item["id"] for item in completed_runs if item["id"] != default_left
+        )
+        left_run = st.selectbox(
+            "Left Run",
+            options=list(run_labels.keys()),
+            format_func=lambda run_id: run_labels[run_id],
+            index=list(run_labels.keys()).index(default_left),
+            key="compare-left-run",
+        )
+        right_run = st.selectbox(
+            "Right Run",
+            options=[run_id for run_id in run_labels.keys() if run_id != left_run],
+            format_func=lambda run_id: run_labels[run_id],
+            index=max(0, [run_id for run_id in run_labels.keys() if run_id != left_run].index(default_right)),
+            key="compare-right-run",
+        )
+        metric = st.selectbox(
+            "Comparison Metric",
+            options=["recall@k", "precision@k", "mrr", "ndcg@k", "map@k", "hit_rate@k", "latency_ms"],
+            key="compare-metric",
+        )
+
+        if st.button("Compare Runs", key="compare-runs-button", use_container_width=True):
+            try:
+                comparison_payload = api_client.compare_runs(run_ids=[left_run, right_run], metric=metric)
+            except ApiClientError as exc:
+                st.error(str(exc))
+                return
+
+            winner = comparison_payload.get("winner")
+            if winner:
+                st.success(
+                    f"Winner on {metric}: {winner['run_id']} "
+                    f"({winner.get('chunker')} + {winner.get('embedder')} + {winner.get('retriever')})"
+                )
+
+            compare_items = list(comparison_payload.get("items", []))
+            if compare_items:
+                compare_df = pd.DataFrame(compare_items)
+                st.dataframe(compare_df, use_container_width=True, hide_index=True)

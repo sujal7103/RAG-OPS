@@ -18,6 +18,7 @@ from rag_ops.db.models import (
 )
 from rag_ops.db.session import get_session_factory
 from rag_ops.db.session import reset_engine_cache
+from rag_ops.security.auth import _get_jwk_client
 from rag_ops.security.credentials import decrypt_secret
 from rag_ops.settings import ServiceSettings
 
@@ -105,7 +106,11 @@ def test_provider_credentials_crud_and_audit_events(tmp_path: Path):
     with get_session_factory(settings)() as session:
         stored_credential = session.execute(select(ProviderCredentialModel)).scalar_one()
         assert stored_credential.ciphertext != "sk-test-123456"
-        assert decrypt_secret(stored_credential.ciphertext, settings.credential_key) == "sk-test-123456"
+        assert decrypt_secret(
+            stored_credential.ciphertext,
+            settings,
+            key_id=stored_credential.key_id,
+        ) == "sk-test-123456"
         assert stored_credential.deleted_at is not None
 
         audit_actions = [
@@ -117,6 +122,49 @@ def test_provider_credentials_crud_and_audit_events(tmp_path: Path):
         "provider_credential.created",
         "provider_credential.deleted",
     ]
+
+
+def test_provider_credential_rotation_uses_active_keyring_key(tmp_path: Path):
+    """Stored credentials should rotate cleanly onto a new active key."""
+    reset_engine_cache()
+    settings = _build_settings(
+        tmp_path,
+        RAG_OPS_CREDENTIAL_ACTIVE_KEY_ID="v1",
+        RAG_OPS_CREDENTIAL_KEYS_JSON='{"v1":"old-key-material-1234567890","v2":"new-key-material-0987654321"}',
+    )
+
+    with TestClient(create_app(settings)) as client:
+        create_response = client.post(
+            "/v1/provider-credentials",
+            json={
+                "provider": "openai",
+                "label": "Rotate Me",
+                "secret": "sk-rotate-me",
+            },
+        )
+        credential_id = create_response.json()["id"]
+
+    rotated_settings = _build_settings(
+        tmp_path,
+        RAG_OPS_CREDENTIAL_ACTIVE_KEY_ID="v2",
+        RAG_OPS_CREDENTIAL_KEYS_JSON='{"v1":"old-key-material-1234567890","v2":"new-key-material-0987654321"}',
+    )
+
+    with TestClient(create_app(rotated_settings)) as client:
+        rotate_response = client.post(f"/v1/provider-credentials/{credential_id}/rotate")
+
+    assert rotate_response.status_code == 200
+    payload = rotate_response.json()
+    assert payload["key_id"] == "v2"
+    assert payload["needs_rotation"] is False
+
+    with get_session_factory(rotated_settings)() as session:
+        stored_credential = session.execute(select(ProviderCredentialModel)).scalar_one()
+        assert decrypt_secret(
+            stored_credential.ciphertext,
+            rotated_settings,
+            key_id=stored_credential.key_id,
+        ) == "sk-rotate-me"
 
 
 def test_member_cannot_manage_provider_credentials(tmp_path: Path):
@@ -212,4 +260,55 @@ def test_jwt_auth_mode_accepts_bearer_token_and_membership(tmp_path: Path):
     payload = response.json()
     assert payload["auth_mode"] == "jwt"
     assert payload["user_email"] == "jwt-user@ragops.local"
+    assert payload["role"] == "workspace_admin"
+
+
+def test_oidc_auth_mode_accepts_jwks_signed_bearer_token(monkeypatch, tmp_path: Path):
+    """OIDC mode should validate bearer tokens through the configured JWKS client."""
+    reset_engine_cache()
+    _get_jwk_client.cache_clear()
+    settings = _build_settings(
+        tmp_path,
+        RAG_OPS_AUTH_MODE="oidc",
+        RAG_OPS_AUTH_OIDC_JWKS_URL="https://issuer.example/.well-known/jwks.json",
+        RAG_OPS_AUTH_JWT_ISSUER="https://issuer.example/",
+        RAG_OPS_AUTH_JWT_AUDIENCE="rag-ops",
+        RAG_OPS_AUTH_AUTO_PROVISION_MEMBERSHIPS="true",
+    )
+
+    token = jwt.encode(
+        {
+            "sub": "oidc-user-123",
+            "email": "oidc-user@ragops.local",
+            "name": "OIDC User",
+            "iss": settings.auth_jwt_issuer,
+            "aud": settings.auth_jwt_audience,
+            "workspace_slug": "personal",
+            "role": "workspace_admin",
+        },
+        "oidc-test-secret-key-material-1234567890",
+        algorithm=settings.auth_jwt_algorithm,
+    )
+
+    class FakeSigningKey:
+        key = "oidc-test-secret-key-material-1234567890"
+
+    class FakeJwkClient:
+        def __init__(self, url: str) -> None:
+            self.url = url
+
+        def get_signing_key_from_jwt(self, token_value: str):
+            assert token_value == token
+            assert self.url == settings.auth_oidc_jwks_url
+            return FakeSigningKey()
+
+    monkeypatch.setattr(jwt, "PyJWKClient", FakeJwkClient)
+
+    with TestClient(create_app(settings)) as client:
+        response = client.get("/v1/me", headers={"authorization": f"Bearer {token}"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["auth_mode"] == "oidc"
+    assert payload["user_email"] == "oidc-user@ragops.local"
     assert payload["role"] == "workspace_admin"
