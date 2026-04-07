@@ -1,3 +1,7 @@
+# Local development / self-hosted sandbox topology.
+# This file is not hardened for direct public internet exposure.
+# Do not publish Postgres, Redis, MinIO, Prometheus, Grafana, or metrics ports publicly without a reverse proxy,
+# authentication, and network restrictions.
 services:
   api:
     build: .

@@ -27,6 +27,11 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
     """Create and configure the FastAPI application."""
     active_settings = settings or get_settings()
     configure_logging(active_settings)
+    if active_settings.auth_mode.strip().lower() == "dev":
+        logger.warning(
+            "RAG_OPS_AUTH_MODE=dev is enabled. This mode is for local development only and "
+            "must not be exposed on a public deployment."
+        )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -55,12 +60,13 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
     }
     app.add_middleware(RequestContextMiddleware)
     app.add_middleware(TimeoutMiddleware, settings=active_settings)
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+    if active_settings.cors_allowed_origins_list:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=active_settings.cors_allowed_origins_list,
+            allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+            allow_headers=["authorization", "content-type", "x-request-id"],
+        )
     app.include_router(system_router)
     app.include_router(security_router)
     app.include_router(platform_router)

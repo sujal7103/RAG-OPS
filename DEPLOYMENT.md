@@ -14,6 +14,8 @@ RAG-OPS is currently designed to run as a multi-service Python stack:
 
 This is the supported deployment direction for the current architecture.
 
+The checked-in `docker-compose.yml` is a local-development and trusted self-hosting scaffold. It exposes internal data and monitoring services for convenience and is not internet-safe on its own.
+
 ## Important Hosting Note
 
 Vercel is not the primary deployment target for the current RAG-OPS stack. The current product shape depends on a long-running Streamlit UI, a long-running worker process, and stateful infrastructure such as Postgres, Redis, and object storage.
@@ -24,6 +26,8 @@ Use Docker-based multi-service hosting such as Render, Railway, Fly, a VPS, or a
 
 Use `RAG_OPS_AUTH_MODE=oidc` in staging and production.
 
+Do not use `RAG_OPS_AUTH_MODE=dev` outside local development. Dev auth trusts local request headers and is intentionally only for local workflows.
+
 Provide either:
 
 - `RAG_OPS_AUTH_OIDC_DISCOVERY_URL`
@@ -33,6 +37,7 @@ Also set:
 
 - `RAG_OPS_AUTH_JWT_ISSUER`
 - `RAG_OPS_AUTH_JWT_AUDIENCE`
+- `RAG_OPS_CORS_ALLOWED_ORIGINS` to the exact browser origins allowed to call the API
 
 Workspace and role claims default to:
 
@@ -88,6 +93,8 @@ Endpoints:
 - Worker metrics: `http://localhost:9101/metrics`
 - Prometheus: `http://localhost:9090`
 - Grafana: `http://localhost:3000`
+
+Do not expose metrics, Prometheus, Grafana, Redis, Postgres, or object-store admin endpoints directly on the public internet. Keep them on internal networking or behind authenticated infrastructure.
 
 ## Backups
 

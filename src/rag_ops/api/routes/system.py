@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
 
 from rag_ops.metrics_registry import get_metrics_registry
@@ -41,7 +41,10 @@ async def ready(request: Request):
 
 
 @router.get("/metrics")
-async def metrics() -> PlainTextResponse:
+async def metrics(request: Request) -> PlainTextResponse:
     """Return a Prometheus-style metrics snapshot."""
+    settings = request.app.state.settings
+    if not settings.metrics_enabled:
+        raise HTTPException(status_code=404, detail="Metrics endpoint is disabled")
     registry = get_metrics_registry()
     return PlainTextResponse(registry.render_prometheus(), media_type="text/plain; version=0.0.4")

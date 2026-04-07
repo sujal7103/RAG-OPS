@@ -94,6 +94,11 @@ def get_default_api_base_url() -> str:
     return os.getenv("RAG_OPS_API_BASE_URL", "").strip().rstrip("/")
 
 
+def get_default_cors_allowed_origins() -> str:
+    """Return a comma-separated list of allowed browser origins for API CORS."""
+    return os.getenv("RAG_OPS_CORS_ALLOWED_ORIGINS", "").strip()
+
+
 def get_default_credential_key() -> str:
     """Return a persisted local credential key for development use."""
     configured = os.getenv("RAG_OPS_CREDENTIAL_KEY", "").strip()
@@ -123,6 +128,10 @@ class ServiceSettings(BaseSettings):
     admin_host: str = Field("0.0.0.0", alias="RAG_OPS_ADMIN_HOST")
     admin_port: int = Field(8501, alias="RAG_OPS_ADMIN_PORT")
     api_base_url: str = Field(default_factory=get_default_api_base_url, alias="RAG_OPS_API_BASE_URL")
+    cors_allowed_origins: str = Field(
+        default_factory=get_default_cors_allowed_origins,
+        alias="RAG_OPS_CORS_ALLOWED_ORIGINS",
+    )
     ui_api_poll_interval_seconds: float = Field(
         1.0,
         alias="RAG_OPS_UI_API_POLL_INTERVAL_SECONDS",
@@ -218,6 +227,15 @@ class ServiceSettings(BaseSettings):
     credential_keys_json: str = Field("", alias="RAG_OPS_CREDENTIAL_KEYS_JSON")
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    @property
+    def cors_allowed_origins_list(self) -> list[str]:
+        """Return configured CORS origins as a normalized list."""
+        return [
+            origin.strip().rstrip("/")
+            for origin in self.cors_allowed_origins.split(",")
+            if origin.strip()
+        ]
 
 
 @lru_cache(maxsize=1)

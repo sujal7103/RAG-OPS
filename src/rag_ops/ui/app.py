@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import time
 
 from rag_ops.runner import run_benchmark
@@ -24,6 +25,30 @@ from rag_ops.ui.styles import apply_page_style, render_header
 
 
 TERMINAL_RUN_STATUSES = {"completed", "failed", "cancelled"}
+
+
+def _streamlit_secret_value(st, secret_name: str) -> str:
+    try:
+        return str(st.secrets.get(secret_name, "")).strip()
+    except Exception:
+        return ""
+
+
+def _resolve_local_api_keys(st, api_keys: dict[str, str]) -> dict[str, str]:
+    resolved = {name: value.strip() for name, value in api_keys.items() if value.strip()}
+    if "openai" not in resolved:
+        openai_key = os.getenv("OPENAI_API_KEY", "").strip() or _streamlit_secret_value(
+            st, "OPENAI_API_KEY"
+        )
+        if openai_key:
+            resolved["openai"] = openai_key
+    if "cohere" not in resolved:
+        cohere_key = os.getenv("COHERE_API_KEY", "").strip() or _streamlit_secret_value(
+            st, "COHERE_API_KEY"
+        )
+        if cohere_key:
+            resolved["cohere"] = cohere_key
+    return resolved
 
 
 def _create_api_config_name(config) -> str:
@@ -129,6 +154,7 @@ def run_app() -> None:
     )
 
     config = sidebar.config
+    resolved_local_api_keys = _resolve_local_api_keys(st, dict(config.api_keys))
     can_run = True
     warnings: list[str] = []
     if not config.chunker_names:
@@ -143,15 +169,17 @@ def run_app() -> None:
     if (
         not api_mode_enabled
         and ("OpenAI Small" in config.embedder_names or "OpenAI Large" in config.embedder_names)
-        and not config.api_keys.get("openai")
+        and not resolved_local_api_keys.get("openai")
     ):
         warnings.append(
-            "Enter your **OpenAI API key** in the sidebar or set `OPENAI_API_KEY` / Streamlit secrets."
+            "Enter your **OpenAI API key** in the sidebar, or configure `OPENAI_API_KEY` / "
+            "Streamlit secrets server-side. Server-side secrets are not shown in the UI."
         )
         can_run = False
-    if not api_mode_enabled and "Cohere" in config.embedder_names and not config.api_keys.get("cohere"):
+    if not api_mode_enabled and "Cohere" in config.embedder_names and not resolved_local_api_keys.get("cohere"):
         warnings.append(
-            "Enter your **Cohere API key** in the sidebar or set `COHERE_API_KEY` / Streamlit secrets."
+            "Enter your **Cohere API key** in the sidebar, or configure `COHERE_API_KEY` / "
+            "Streamlit secrets server-side. Server-side secrets are not shown in the UI."
         )
         can_run = False
 
@@ -208,7 +236,7 @@ def run_app() -> None:
                             embedder_names=config.embedder_names,
                             retriever_names=config.retriever_names,
                             top_k=config.top_k,
-                            api_keys=config.api_keys,
+                            api_keys=resolved_local_api_keys,
                             progress_callback=on_progress,
                             enable_disk_cache=config.enable_disk_cache,
                             cache_dir=ensure_directory(get_default_cache_dir()),

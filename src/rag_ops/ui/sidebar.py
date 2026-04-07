@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from typing import Any, Mapping
 
@@ -16,19 +15,6 @@ class SidebarSelections:
     config: BenchmarkConfig
     n_combos: int
     hybrid_requires_dense: bool
-
-
-def _secret_value(st, secret_name: str, env_name: str) -> str:
-    env_value = os.getenv(env_name, "").strip()
-    if env_value:
-        return env_value
-
-    try:
-        return str(st.secrets.get(secret_name, "")).strip()
-    except Exception:
-        # Streamlit raises when no secrets file exists. Treat that as "not configured".
-        return ""
-
 
 def _credential_options(
     credentials: list[dict[str, Any]],
@@ -183,20 +169,16 @@ def render_sidebar(st, *, api_mode_enabled: bool = False, api_client=None) -> Si
                             selected_index = cohere_labels.index(selected_cohere) - 1
                             credential_bindings["cohere"] = str(cohere_credentials[selected_index]["id"])
         elif embed_openai_small or embed_openai_large:
-            default_openai_key = _secret_value(st, "OPENAI_API_KEY", "OPENAI_API_KEY")
             api_keys["openai"] = st.text_input(
                 "OpenAI API Key",
                 type="password",
                 placeholder="sk-...",
-                value=default_openai_key,
             ).strip()
         if not api_mode_enabled and embed_cohere:
-            default_cohere_key = _secret_value(st, "COHERE_API_KEY", "COHERE_API_KEY")
             api_keys["cohere"] = st.text_input(
                 "Cohere API Key",
                 type="password",
                 placeholder="...",
-                value=default_cohere_key,
             ).strip()
 
         st.markdown(

@@ -58,10 +58,32 @@ def test_metrics_endpoint_exposes_prometheus_snapshot():
     """The API should expose process metrics in Prometheus text format."""
     get_metrics_registry().reset()
 
-    with TestClient(create_app(_build_settings())) as client:
+    with TestClient(create_app(_build_settings(RAG_OPS_METRICS_ENABLED="true"))) as client:
         client.get("/")
         response = client.get("/metrics")
 
     assert response.status_code == 200
     assert "rag_ops_http_requests_total" in response.text
     assert "rag_ops_http_request_duration_seconds" in response.text
+
+
+def test_metrics_endpoint_is_disabled_by_default():
+    """The metrics endpoint should not be exposed unless explicitly enabled."""
+    with TestClient(create_app(_build_settings())) as client:
+        response = client.get("/metrics")
+
+    assert response.status_code == 404
+
+
+def test_cors_headers_are_only_added_for_configured_origins():
+    """CORS should only allow explicitly configured browser origins."""
+    allowed_origin = "https://ragops.example.com"
+
+    with TestClient(
+        create_app(_build_settings(RAG_OPS_CORS_ALLOWED_ORIGINS=allowed_origin))
+    ) as client:
+        allowed = client.get("/", headers={"Origin": allowed_origin})
+        blocked = client.get("/", headers={"Origin": "https://evil.example.com"})
+
+    assert allowed.headers["access-control-allow-origin"] == allowed_origin
+    assert "access-control-allow-origin" not in blocked.headers

@@ -153,6 +153,8 @@ Or bring up the local multi-service stack:
 docker compose up --build
 ```
 
+`docker-compose.yml` is meant for local development and trusted self-hosting only. It exposes internal services and monitoring ports for convenience, so do not treat it as an internet-safe production deployment by itself.
+
 For containerized staging or production guidance, see [DEPLOYMENT.md](DEPLOYMENT.md).
 
 ---
@@ -246,6 +248,12 @@ python3 -m compileall app.py src tests alembic monitoring
 The current production-shaped deployment target is a full multi-service host, not Vercel. RAG-OPS relies on a long-running Streamlit UI, API service, async worker, and supporting stateful infrastructure such as Postgres, Redis, and object storage.
 
 If you want to deploy the current stack, use Docker-based hosting such as Render, Railway, Fly, a VPS, or another platform that supports long-running Python services.
+
+For public deployments:
+
+- do not use `RAG_OPS_AUTH_MODE=dev`
+- set `RAG_OPS_CORS_ALLOWED_ORIGINS` to trusted browser origins only
+- keep Postgres, Redis, MinIO, Prometheus, Grafana, and `/metrics` behind private networking or an authenticated reverse proxy
 
 ---
 
