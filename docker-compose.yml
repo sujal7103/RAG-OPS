@@ -9,6 +9,9 @@ services:
       RAG_OPS_API_HOST: 0.0.0.0
       RAG_OPS_API_PORT: 8000
       RAG_OPS_DATABASE_URL: ${RAG_OPS_DATABASE_URL:-postgresql+psycopg://postgres:${RAG_OPS_POSTGRES_PASSWORD}@postgres:5432/rag_ops}
+      RAG_OPS_STATE_DIR: /app/.rag_ops
+      RAG_OPS_CACHE_DIR: /app/.rag_ops_cache
+      RAG_OPS_RUNS_DIR: /app/.rag_ops_runs
       RAG_OPS_REDIS_ENABLED: ${RAG_OPS_REDIS_ENABLED:-true}
       RAG_OPS_REDIS_URL: ${RAG_OPS_REDIS_URL:-redis://redis:6379/0}
       RAG_OPS_QUEUE_BACKEND: ${RAG_OPS_QUEUE_BACKEND:-dramatiq}
@@ -21,6 +24,10 @@ services:
       - postgres
       - redis
       - minio
+    volumes:
+      - rag_ops_state:/app/.rag_ops
+      - rag_ops_cache:/app/.rag_ops_cache
+      - rag_ops_runs:/app/.rag_ops_runs
     ports:
       - "8000:8000"
 
@@ -32,6 +39,9 @@ services:
     environment:
       RAG_OPS_ENV: ${RAG_OPS_ENV:-development}
       RAG_OPS_DATABASE_URL: ${RAG_OPS_DATABASE_URL:-postgresql+psycopg://postgres:${RAG_OPS_POSTGRES_PASSWORD}@postgres:5432/rag_ops}
+      RAG_OPS_STATE_DIR: /app/.rag_ops
+      RAG_OPS_CACHE_DIR: /app/.rag_ops_cache
+      RAG_OPS_RUNS_DIR: /app/.rag_ops_runs
       RAG_OPS_REDIS_ENABLED: ${RAG_OPS_REDIS_ENABLED:-true}
       RAG_OPS_REDIS_URL: ${RAG_OPS_REDIS_URL:-redis://redis:6379/0}
       RAG_OPS_QUEUE_BACKEND: ${RAG_OPS_QUEUE_BACKEND:-dramatiq}
@@ -44,6 +54,10 @@ services:
       - postgres
       - redis
       - minio
+    volumes:
+      - rag_ops_state:/app/.rag_ops
+      - rag_ops_cache:/app/.rag_ops_cache
+      - rag_ops_runs:/app/.rag_ops_runs
 
   admin-ui:
     build: .
@@ -52,8 +66,11 @@ services:
       - .env
     environment:
       RAG_OPS_API_BASE_URL: ${RAG_OPS_API_BASE_URL:-http://api:8000}
+      RAG_OPS_RUNS_DIR: /app/.rag_ops_runs
     depends_on:
       - api
+    volumes:
+      - rag_ops_runs:/app/.rag_ops_runs
     ports:
       - "8501:8501"
 
@@ -88,3 +105,6 @@ services:
 volumes:
   postgres_data:
   minio_data:
+  rag_ops_state:
+  rag_ops_cache:
+  rag_ops_runs:

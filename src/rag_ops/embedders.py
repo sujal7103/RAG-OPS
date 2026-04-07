@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Callable, Mapping
 
 import numpy as np
@@ -154,6 +155,8 @@ def embed_texts(
 
     if key_name:
         api_key = api_keys.get(str(key_name), "")
+        if not api_key:
+            env_name = "OPENAI_API_KEY" if str(key_name) == "openai" else "COHERE_API_KEY"
+            api_key = os.getenv(env_name, "").strip()
         return fn(texts, api_key=api_key, is_query=is_query)
     return fn(texts, is_query=is_query)
-

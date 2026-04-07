@@ -96,6 +96,14 @@ Then open the browser, click **Load Sample Data**, select your strategies, and h
 
 **Requirements:** Python 3.9+. Local embeddings (MiniLM, BGE) run on CPU — no GPU needed. API keys for OpenAI/Cohere are entered in the sidebar.
 
+To run the Streamlit UI against the API service instead of local in-process execution:
+
+```bash
+RAG_OPS_API_BASE_URL=http://localhost:8000 streamlit run app.py
+```
+
+In API-backed mode, datasets/configs/runs are created through the service layer and the UI polls run progress from the API.
+
 ### 5. Run from the CLI
 
 ```bash
@@ -138,6 +146,7 @@ docker compose up --build
 The platform stack expects a local `.env` file for infrastructure credentials such as Postgres and MinIO.
 The persistence layer now stores datasets, benchmark configs, and run metadata in SQLAlchemy-backed tables, with Alembic scaffolding ready for managed migrations.
 Async run execution now supports queued benchmark runs, progress tracking, and cancellation through the service API, with a local thread fallback and a Dramatiq path for hosted environments.
+The Streamlit admin UI can now run in API-backed mode via `RAG_OPS_API_BASE_URL`, persisting datasets/configs/runs through the API and loading completed run artifacts from shared run storage.
 
 ---
 

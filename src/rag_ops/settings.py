@@ -84,6 +84,11 @@ def get_default_database_url() -> str:
     return os.getenv("RAG_OPS_DATABASE_URL", f"sqlite:///{state_dir}/rag_ops.db")
 
 
+def get_default_api_base_url() -> str:
+    """Return the configured API base URL for the admin UI."""
+    return os.getenv("RAG_OPS_API_BASE_URL", "").strip().rstrip("/")
+
+
 def get_default_credential_key() -> str:
     """Return a persisted local credential key for development use."""
     configured = os.getenv("RAG_OPS_CREDENTIAL_KEY", "").strip()
@@ -112,6 +117,11 @@ class ServiceSettings(BaseSettings):
     api_port: int = Field(8000, alias="RAG_OPS_API_PORT")
     admin_host: str = Field("0.0.0.0", alias="RAG_OPS_ADMIN_HOST")
     admin_port: int = Field(8501, alias="RAG_OPS_ADMIN_PORT")
+    api_base_url: str = Field(default_factory=get_default_api_base_url, alias="RAG_OPS_API_BASE_URL")
+    ui_api_poll_interval_seconds: float = Field(
+        1.0,
+        alias="RAG_OPS_UI_API_POLL_INTERVAL_SECONDS",
+    )
     request_timeout_seconds: float = Field(60.0, alias="RAG_OPS_REQUEST_TIMEOUT_SECONDS")
     dependency_timeout_seconds: float = Field(
         2.0,

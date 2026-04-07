@@ -2,12 +2,45 @@
 
 from __future__ import annotations
 
+from rag_ops.models import Document, Query
+from rag_ops.ui.api_client import ApiClientError
 from rag_ops.data_loading import load_sample_data, load_uploaded_data
 from rag_ops.ui.state import reset_loaded_data, store_loaded_data
 from rag_ops.validation import ValidationError
 
 
-def render_data_loader(st) -> None:
+def _build_ground_truth_payload(
+    queries: list[Query],
+    ground_truth: dict[str, set[str]],
+) -> dict[str, list[str]]:
+    return {
+        query.query_id: sorted(ground_truth.get(query.query_id, set()))
+        for query in queries
+    }
+
+
+def _persist_dataset_if_needed(
+    api_client,
+    *,
+    name: str,
+    documents: list[Document],
+    queries: list[Query],
+    ground_truth: dict[str, set[str]],
+) -> tuple[str | None, str | None]:
+    if api_client is None:
+        return None, None
+
+    payload = api_client.create_dataset(
+        name=name,
+        documents=[document.to_mapping() for document in documents],
+        queries=[query.to_mapping() for query in queries],
+        ground_truth=_build_ground_truth_payload(queries, ground_truth),
+    )
+    latest_version = payload.get("latest_version") or {}
+    return payload.get("id"), latest_version.get("id")
+
+
+def render_data_loader(st, api_client=None) -> None:
     """Render the first step for loading sample or uploaded data."""
     st.markdown(
         """
@@ -36,10 +69,27 @@ def render_data_loader(st) -> None:
             try:
                 with st.spinner("Loading sample data..."):
                     documents, queries, ground_truth = load_sample_data()
+                    dataset_id, dataset_version_id = _persist_dataset_if_needed(
+                        api_client,
+                        name="Sample Data",
+                        documents=documents,
+                        queries=queries,
+                        ground_truth=ground_truth,
+                    )
+            except ApiClientError as exc:
+                st.error(str(exc))
             except Exception as exc:
                 st.error(str(exc))
             else:
-                store_loaded_data(st, documents, queries, ground_truth)
+                store_loaded_data(
+                    st,
+                    documents,
+                    queries,
+                    ground_truth,
+                    dataset_id=dataset_id,
+                    dataset_version_id=dataset_version_id,
+                    dataset_name="Sample Data",
+                )
                 st.rerun()
 
     with col2:
@@ -69,10 +119,27 @@ def render_data_loader(st) -> None:
                 try:
                     with st.spinner("Processing uploaded files..."):
                         documents, queries, ground_truth = load_uploaded_data(doc_files, queries_file)
+                        dataset_id, dataset_version_id = _persist_dataset_if_needed(
+                            api_client,
+                            name="Uploaded Dataset",
+                            documents=documents,
+                            queries=queries,
+                            ground_truth=ground_truth,
+                        )
                 except (ValidationError, ValueError, TypeError) as exc:
                     st.error(str(exc))
+                except ApiClientError as exc:
+                    st.error(str(exc))
                 else:
-                    store_loaded_data(st, documents, queries, ground_truth)
+                    store_loaded_data(
+                        st,
+                        documents,
+                        queries,
+                        ground_truth,
+                        dataset_id=dataset_id,
+                        dataset_version_id=dataset_version_id,
+                        dataset_name="Uploaded Dataset",
+                    )
                     st.rerun()
 
         with st.expander("Expected queries.json format"):
@@ -131,6 +198,11 @@ def render_loaded_data_summary(st) -> None:
             reset_loaded_data(st)
             st.rerun()
 
+    if st.session_state.dataset_version_id:
+        st.caption(
+            f"Persisted dataset version: `{st.session_state.dataset_version_id}`"
+        )
+
     with st.expander("Preview loaded data", expanded=False):
         tab_docs, tab_queries = st.tabs(["Documents", "Queries"])
         with tab_docs:
@@ -143,4 +215,3 @@ def render_loaded_data_summary(st) -> None:
                 relevant = st.session_state.ground_truth.get(query.query_id, set())
                 st.markdown(f"**{query.query_id}**: {query.query}")
                 st.caption(f"Relevant: {', '.join(sorted(relevant))}")
-

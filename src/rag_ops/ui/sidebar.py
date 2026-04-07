@@ -30,11 +30,13 @@ def _secret_value(st, secret_name: str, env_name: str) -> str:
         return ""
 
 
-def render_sidebar(st) -> SidebarSelections:
+def render_sidebar(st, *, api_mode_enabled: bool = False) -> SidebarSelections:
     """Render the sidebar and return the chosen benchmark settings."""
     with st.sidebar:
         st.markdown("## RAG-OPS")
         st.caption("Configure your benchmark below")
+        if api_mode_enabled:
+            st.caption("API-backed admin mode is enabled")
 
         st.markdown(
             '<div class="sidebar-section"><div class="sidebar-section-title">Chunking Strategies</div>',
@@ -93,17 +95,22 @@ def render_sidebar(st) -> SidebarSelections:
         )
         st.markdown("</div>", unsafe_allow_html=True)
 
-        default_openai_key = _secret_value(st, "OPENAI_API_KEY", "OPENAI_API_KEY")
-        default_cohere_key = _secret_value(st, "COHERE_API_KEY", "COHERE_API_KEY")
         api_keys: dict[str, str] = {}
-        if embed_openai_small or embed_openai_large:
+        if api_mode_enabled and (embed_openai_small or embed_openai_large or embed_cohere):
+            st.info(
+                "API mode uses server-side provider credentials or environment variables. "
+                "Sidebar API keys are only used in standalone local mode."
+            )
+        elif embed_openai_small or embed_openai_large:
+            default_openai_key = _secret_value(st, "OPENAI_API_KEY", "OPENAI_API_KEY")
             api_keys["openai"] = st.text_input(
                 "OpenAI API Key",
                 type="password",
                 placeholder="sk-...",
                 value=default_openai_key,
             ).strip()
-        if embed_cohere:
+        if not api_mode_enabled and embed_cohere:
+            default_cohere_key = _secret_value(st, "COHERE_API_KEY", "COHERE_API_KEY")
             api_keys["cohere"] = st.text_input(
                 "Cohere API Key",
                 type="password",
@@ -137,16 +144,23 @@ def render_sidebar(st) -> SidebarSelections:
             unsafe_allow_html=True,
         )
         top_k = st.slider("Top-K results to retrieve", min_value=1, max_value=20, value=5)
-        enable_disk_cache = st.toggle(
-            "Enable disk cache",
-            value=True,
-            help="Reuse chunk and embedding artifacts between benchmark runs.",
-        )
-        persist_run_artifacts = st.toggle(
-            "Persist run artifacts",
-            value=True,
-            help="Save benchmark summaries, CSV, and per-query JSON for later comparison.",
-        )
+        if api_mode_enabled:
+            st.info(
+                "API mode uses the server-side cache and always persists run artifacts for result loading."
+            )
+            enable_disk_cache = True
+            persist_run_artifacts = True
+        else:
+            enable_disk_cache = st.toggle(
+                "Enable disk cache",
+                value=True,
+                help="Reuse chunk and embedding artifacts between benchmark runs.",
+            )
+            persist_run_artifacts = st.toggle(
+                "Persist run artifacts",
+                value=True,
+                help="Save benchmark summaries, CSV, and per-query JSON for later comparison.",
+            )
         st.markdown("</div>", unsafe_allow_html=True)
 
         chunker_names = []

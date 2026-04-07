@@ -74,3 +74,31 @@ def test_embed_openai_batches_and_normalizes(monkeypatch):
     assert result.shape == (101, 2)
     assert np.allclose(np.linalg.norm(result, axis=1), np.ones(101))
 
+
+def test_embed_texts_uses_environment_fallback_for_openai_key(monkeypatch):
+    captured = {}
+
+    def fake_embed_openai(texts, api_key, model="text-embedding-3-small", is_query=False):
+        captured["api_key"] = api_key
+        return np.array([[1.0, 0.0]], dtype=np.float32)
+
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-env-test")
+    monkeypatch.setattr(embedders, "embed_openai", fake_embed_openai)
+    monkeypatch.setitem(
+        embedders.EMBEDDERS,
+        "OpenAI Small",
+        {
+            "fn": lambda texts, api_key, is_query=False: embedders.embed_openai(
+                texts,
+                api_key,
+                "text-embedding-3-small",
+                is_query,
+            ),
+            "needs_api_key": "openai",
+        },
+    )
+
+    result = embedders.embed_texts(["hello"], "OpenAI Small", api_keys={})
+
+    assert result.shape == (1, 2)
+    assert captured["api_key"] == "sk-env-test"
