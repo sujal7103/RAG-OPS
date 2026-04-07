@@ -59,8 +59,3 @@ src/*.egg-info/
 .rag_ops_cache/
 .rag_ops_runs/
 .rag_ops/
-frontend/node_modules/
-frontend/dist/
-frontend/*.tsbuildinfo
-frontend/vite.config.js
-frontend/vite.config.d.ts
