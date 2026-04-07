@@ -181,6 +181,8 @@ class BenchmarkRunModel(Base):
     dataset_version_id: Mapped[str] = mapped_column(ForeignKey("dataset_versions.id"), index=True)
     benchmark_config_id: Mapped[str] = mapped_column(ForeignKey("benchmark_configs.id"), index=True)
     status: Mapped[str] = mapped_column(String(32), default="queued", index=True)
+    credential_bindings_json: Mapped[dict[str, str]] = mapped_column(JSON, default=dict)
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0)
     latest_stage: Mapped[str] = mapped_column(String(255), default="queued")
     latest_progress_pct: Mapped[int] = mapped_column(Integer, default=0)
     error_summary: Mapped[str | None] = mapped_column(Text, nullable=True)

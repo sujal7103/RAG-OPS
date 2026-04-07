@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from rag_ops.api.app import create_app
+from rag_ops.metrics_registry import get_metrics_registry
 from rag_ops.settings import ServiceSettings
 
 
@@ -51,3 +52,16 @@ def test_request_context_headers_are_returned():
     assert response.status_code == 200
     assert response.headers["x-request-id"] == "req-123"
     assert "x-process-time-ms" in response.headers
+
+
+def test_metrics_endpoint_exposes_prometheus_snapshot():
+    """The API should expose process metrics in Prometheus text format."""
+    get_metrics_registry().reset()
+
+    with TestClient(create_app(_build_settings())) as client:
+        client.get("/")
+        response = client.get("/metrics")
+
+    assert response.status_code == 200
+    assert "rag_ops_http_requests_total" in response.text
+    assert "rag_ops_http_request_duration_seconds" in response.text

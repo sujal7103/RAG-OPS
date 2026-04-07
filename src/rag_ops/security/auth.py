@@ -69,6 +69,9 @@ def resolve_request_auth_context(
             auth_mode=mode,
         )
 
+    if mode == "jwt":
+        return _resolve_jwt_auth_context(session, settings, request)
+
     if mode != "dev":
         raise AuthenticationError(f"Unsupported auth mode: {settings.auth_mode}")
 
@@ -130,6 +133,91 @@ def resolve_request_auth_context(
     )
 
 
+def _resolve_jwt_auth_context(
+    session: Session,
+    settings: ServiceSettings,
+    request: Request,
+) -> AuthContext:
+    """Resolve a bearer JWT into an authenticated workspace context."""
+    if not settings.auth_jwt_secret:
+        raise AuthenticationError("JWT auth is enabled but no signing secret is configured")
+
+    auth_header = request.headers.get("authorization", "").strip()
+    if not auth_header.lower().startswith("bearer "):
+        raise AuthenticationError("Bearer token is required")
+    token = auth_header.split(" ", 1)[1].strip()
+    if not token:
+        raise AuthenticationError("Bearer token is required")
+
+    try:
+        import jwt
+    except ModuleNotFoundError as exc:
+        raise AuthenticationError("PyJWT is required for JWT auth mode") from exc
+
+    decode_kwargs = {
+        "algorithms": [settings.auth_jwt_algorithm],
+        "options": {"require": ["sub"]},
+    }
+    if settings.auth_jwt_audience:
+        decode_kwargs["audience"] = settings.auth_jwt_audience
+    if settings.auth_jwt_issuer:
+        decode_kwargs["issuer"] = settings.auth_jwt_issuer
+
+    try:
+        claims = jwt.decode(token, settings.auth_jwt_secret, **decode_kwargs)
+    except Exception as exc:
+        raise AuthenticationError("Invalid bearer token") from exc
+
+    user_email = str(claims.get("email") or claims.get("sub") or "").strip().lower()
+    if not user_email:
+        raise AuthenticationError("JWT token is missing an email or subject")
+    user_name = str(claims.get("name") or claims.get("preferred_username") or user_email).strip()
+    workspace_slug = str(
+        claims.get(settings.auth_jwt_workspace_claim)
+        or request.headers.get("x-rag-ops-workspace-slug", "")
+        or settings.default_workspace_slug
+    ).strip()
+    role_claim = str(claims.get(settings.auth_jwt_role_claim, "workspace_member")).strip()
+
+    workspace = _get_workspace(session, workspace_slug)
+    user = session.execute(select(UserModel).where(UserModel.email == user_email)).scalar_one_or_none()
+    if user is None:
+        user = UserModel(email=user_email, display_name=user_name)
+        session.add(user)
+        session.flush()
+
+    membership = session.execute(
+        select(MembershipModel).where(
+            MembershipModel.workspace_id == workspace.id,
+            MembershipModel.user_id == user.id,
+        )
+    ).scalar_one_or_none()
+    if membership is None:
+        if not settings.auth_auto_provision_memberships:
+            raise AuthorizationError("Workspace membership required")
+        membership = MembershipModel(
+            workspace_id=workspace.id,
+            user_id=user.id,
+            role=role_claim or "workspace_member",
+        )
+        session.add(membership)
+        session.commit()
+        session.refresh(user)
+        session.refresh(workspace)
+        session.refresh(membership)
+
+    return AuthContext(
+        user_id=user.id,
+        user_email=user.email,
+        user_name=user.display_name,
+        workspace_id=workspace.id,
+        workspace_slug=workspace.slug,
+        workspace_name=workspace.name,
+        role=membership.role,
+        auth_mode="jwt",
+    )
+
+
 def _get_workspace(session: Session, workspace_slug: str) -> WorkspaceModel:
     workspace = session.execute(
         select(WorkspaceModel).where(WorkspaceModel.slug == workspace_slug)
@@ -137,4 +225,3 @@ def _get_workspace(session: Session, workspace_slug: str) -> WorkspaceModel:
     if workspace is None:
         raise AuthorizationError("Workspace access denied")
     return workspace
-

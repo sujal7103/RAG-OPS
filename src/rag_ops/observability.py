@@ -12,6 +12,8 @@ from typing import Any
 from rag_ops.settings import ServiceSettings
 
 _request_id_var: contextvars.ContextVar[str] = contextvars.ContextVar("request_id", default="-")
+_workspace_id_var: contextvars.ContextVar[str] = contextvars.ContextVar("workspace_id", default="-")
+_run_id_var: contextvars.ContextVar[str] = contextvars.ContextVar("run_id", default="-")
 
 
 def set_request_id(request_id: str) -> contextvars.Token[str]:
@@ -29,11 +31,46 @@ def get_request_id() -> str:
     return _request_id_var.get()
 
 
+def set_workspace_id(workspace_id: str) -> contextvars.Token[str]:
+    """Bind a workspace identifier to the current context."""
+    return _workspace_id_var.set(workspace_id)
+
+
+def reset_workspace_id(token: contextvars.Token[str]) -> None:
+    """Reset the bound workspace identifier."""
+    _workspace_id_var.reset(token)
+
+
+def get_workspace_id() -> str:
+    """Return the current workspace identifier if set."""
+    return _workspace_id_var.get()
+
+
+def set_run_id(run_id: str) -> contextvars.Token[str]:
+    """Bind a run identifier to the current context."""
+    return _run_id_var.set(run_id)
+
+
+def reset_run_id(token: contextvars.Token[str]) -> None:
+    """Reset the bound run identifier."""
+    _run_id_var.reset(token)
+
+
+def get_run_id() -> str:
+    """Return the current run identifier if set."""
+    return _run_id_var.get()
+
+
 class RequestContextFilter(logging.Filter):
     """Inject request-context values into log records."""
 
     def filter(self, record: logging.LogRecord) -> bool:
-        record.request_id = get_request_id()
+        if not hasattr(record, "request_id"):
+            record.request_id = get_request_id()
+        if not hasattr(record, "workspace_id"):
+            record.workspace_id = get_workspace_id()
+        if not hasattr(record, "run_id"):
+            record.run_id = get_run_id()
         return True
 
 
@@ -47,6 +84,8 @@ class JsonFormatter(logging.Formatter):
             "logger": record.name,
             "message": record.getMessage(),
             "request_id": getattr(record, "request_id", "-"),
+            "workspace_id": getattr(record, "workspace_id", "-"),
+            "run_id": getattr(record, "run_id", "-"),
         }
         if record.exc_info:
             payload["exception"] = self.formatException(record.exc_info)
@@ -68,7 +107,8 @@ def configure_logging(settings: ServiceSettings) -> None:
     else:
         handler.setFormatter(
             logging.Formatter(
-                "%(asctime)s | %(levelname)s | %(name)s | request_id=%(request_id)s | %(message)s"
+                "%(asctime)s | %(levelname)s | %(name)s | request_id=%(request_id)s "
+                "| workspace_id=%(workspace_id)s | run_id=%(run_id)s | %(message)s"
             )
         )
 

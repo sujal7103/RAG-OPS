@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+import jwt
 from sqlalchemy import select
 
 from rag_ops.api.app import create_app
@@ -177,3 +178,38 @@ def test_workspace_scoping_hides_other_workspace_resources(tmp_path: Path):
     assert list_response.json()["items"] == []
     assert detail_response.status_code == 404
     assert denied_response.status_code == 403
+
+
+def test_jwt_auth_mode_accepts_bearer_token_and_membership(tmp_path: Path):
+    """JWT auth mode should resolve users and workspaces from bearer tokens."""
+    reset_engine_cache()
+    settings = _build_settings(
+        tmp_path,
+        RAG_OPS_AUTH_MODE="jwt",
+        RAG_OPS_AUTH_JWT_SECRET="super-secret-key-for-jwt-tests-123",
+        RAG_OPS_AUTH_AUTO_PROVISION_MEMBERSHIPS="true",
+    )
+
+    token = jwt.encode(
+        {
+            "sub": "user-123",
+            "email": "jwt-user@ragops.local",
+            "name": "JWT User",
+            "workspace_slug": "personal",
+            "role": "workspace_admin",
+        },
+        settings.auth_jwt_secret,
+        algorithm=settings.auth_jwt_algorithm,
+    )
+
+    with TestClient(create_app(settings)) as client:
+        response = client.get(
+            "/v1/me",
+            headers={"authorization": f"Bearer {token}"},
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["auth_mode"] == "jwt"
+    assert payload["user_email"] == "jwt-user@ragops.local"
+    assert payload["role"] == "workspace_admin"

@@ -146,6 +146,11 @@ class ServiceSettings(BaseSettings):
         2.0,
         alias="RAG_OPS_WORKER_POLL_INTERVAL_SECONDS",
     )
+    run_max_attempts: int = Field(2, alias="RAG_OPS_RUN_MAX_ATTEMPTS")
+    run_retry_backoff_seconds: float = Field(
+        1.0,
+        alias="RAG_OPS_RUN_RETRY_BACKOFF_SECONDS",
+    )
     queue_backend: str = Field("thread", alias="RAG_OPS_QUEUE_BACKEND")
     run_state_ttl_seconds: int = Field(3600, alias="RAG_OPS_RUN_STATE_TTL_SECONDS")
     warm_dependencies_on_startup: bool = Field(
@@ -161,6 +166,19 @@ class ServiceSettings(BaseSettings):
         alias="RAG_OPS_DEFAULT_WORKSPACE_NAME",
     )
     auth_mode: str = Field("dev", alias="RAG_OPS_AUTH_MODE")
+    auth_auto_provision_memberships: bool = Field(
+        False,
+        alias="RAG_OPS_AUTH_AUTO_PROVISION_MEMBERSHIPS",
+    )
+    auth_jwt_secret: str = Field("", alias="RAG_OPS_AUTH_JWT_SECRET")
+    auth_jwt_algorithm: str = Field("HS256", alias="RAG_OPS_AUTH_JWT_ALGORITHM")
+    auth_jwt_audience: str = Field("", alias="RAG_OPS_AUTH_JWT_AUDIENCE")
+    auth_jwt_issuer: str = Field("", alias="RAG_OPS_AUTH_JWT_ISSUER")
+    auth_jwt_workspace_claim: str = Field(
+        "workspace_slug",
+        alias="RAG_OPS_AUTH_JWT_WORKSPACE_CLAIM",
+    )
+    auth_jwt_role_claim: str = Field("role", alias="RAG_OPS_AUTH_JWT_ROLE_CLAIM")
     dev_default_user_email: str = Field(
         "owner@ragops.local",
         alias="RAG_OPS_DEV_DEFAULT_USER_EMAIL",

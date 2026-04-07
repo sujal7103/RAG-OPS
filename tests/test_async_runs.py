@@ -187,3 +187,154 @@ def test_execute_benchmark_run_updates_status(monkeypatch, tmp_path: Path):
     assert api_results_response.json()["items"][0]["chunker"] == "Fixed Size"
     assert api_artifacts_response.status_code == 200
     assert api_artifacts_response.json()["bundle"]["summary_json"].endswith("summary.json")
+
+
+def test_execute_benchmark_run_uses_bound_workspace_credentials(monkeypatch, tmp_path: Path):
+    """Worker execution should resolve stored provider credentials into API keys."""
+    reset_engine_cache()
+    settings = _build_settings(tmp_path)
+
+    with TestClient(create_app(settings)) as client:
+        _, dataset_version_id, config_id = _seed_dataset_and_config(client)
+        credential_response = client.post(
+            "/v1/provider-credentials",
+            json={
+                "provider": "openai",
+                "label": "Workspace OpenAI",
+                "secret": "sk-workspace-bound",
+            },
+        )
+        credential_id = credential_response.json()["id"]
+        run_response = client.post(
+            "/v1/runs",
+            json={
+                "dataset_version_id": dataset_version_id,
+                "benchmark_config_id": config_id,
+                "credential_bindings": {"openai": credential_id},
+            },
+        )
+        run_id = run_response.json()["id"]
+
+    captured = {}
+
+    def fake_run_benchmark(**kwargs):
+        captured["api_keys"] = dict(kwargs.get("api_keys", {}))
+        return build_results_frame([]), {}
+
+    monkeypatch.setattr("rag_ops.services.benchmark_runs.run_benchmark", fake_run_benchmark)
+
+    execute_benchmark_run(run_id, settings)
+
+    assert captured["api_keys"]["openai"] == "sk-workspace-bound"
+
+
+def test_execute_benchmark_run_retries_retryable_errors(monkeypatch, tmp_path: Path):
+    """Retryable benchmark failures should retry and then complete."""
+    reset_engine_cache()
+    settings = _build_settings(
+        tmp_path,
+        RAG_OPS_RUN_MAX_ATTEMPTS="3",
+        RAG_OPS_RUN_RETRY_BACKOFF_SECONDS="0",
+    )
+
+    with TestClient(create_app(settings)) as client:
+        _, dataset_version_id, config_id = _seed_dataset_and_config(client)
+        run_response = client.post(
+            "/v1/runs",
+            json={
+                "dataset_version_id": dataset_version_id,
+                "benchmark_config_id": config_id,
+            },
+        )
+        run_id = run_response.json()["id"]
+
+    attempts = {"count": 0}
+
+    def flaky_run_benchmark(**kwargs):
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            raise ConnectionError("temporary network issue")
+        return build_results_frame([]), {}
+
+    monkeypatch.setattr("rag_ops.services.benchmark_runs.run_benchmark", flaky_run_benchmark)
+
+    execute_benchmark_run(run_id, settings)
+
+    with get_session_factory(settings)() as session:
+        repo = PlatformRepository(session, settings)
+        run_payload = repo.get_run(run_id)
+
+    assert attempts["count"] == 2
+    assert run_payload["status"] == "completed"
+    assert run_payload["attempt_count"] == 2
+
+
+def test_compare_and_leaderboard_endpoints_return_historical_results(monkeypatch, tmp_path: Path):
+    """Historical comparison and leaderboard endpoints should expose persisted run reports."""
+    reset_engine_cache()
+    settings = _build_settings(tmp_path)
+
+    with TestClient(create_app(settings)) as client:
+        _, dataset_version_id, config_id = _seed_dataset_and_config(client)
+        first_run = client.post(
+            "/v1/runs",
+            json={
+                "dataset_version_id": dataset_version_id,
+                "benchmark_config_id": config_id,
+            },
+        ).json()["id"]
+        second_run = client.post(
+            "/v1/runs",
+            json={
+                "dataset_version_id": dataset_version_id,
+                "benchmark_config_id": config_id,
+            },
+        ).json()["id"]
+
+    scores = iter([0.6, 0.9])
+
+    def fake_run_benchmark(**kwargs):
+        score = next(scores)
+        return (
+            build_results_frame(
+                [
+                    {
+                        "chunker": "Fixed Size",
+                        "embedder": "MiniLM",
+                        "retriever": "Dense",
+                        "precision@k": score,
+                        "recall@k": score,
+                        "mrr": score,
+                        "ndcg@k": score,
+                        "map@k": score,
+                        "hit_rate@k": score,
+                        "latency_ms": 10.0,
+                        "num_chunks": 1,
+                        "avg_chunk_size": 50.0,
+                        "error": "",
+                    }
+                ]
+            ),
+            {"Fixed Size + MiniLM + Dense": []},
+        )
+
+    monkeypatch.setattr("rag_ops.services.benchmark_runs.run_benchmark", fake_run_benchmark)
+
+    execute_benchmark_run(first_run, settings)
+    execute_benchmark_run(second_run, settings)
+
+    with TestClient(create_app(settings)) as client:
+        compare_response = client.post(
+            "/v1/runs/compare",
+            json={"run_ids": [first_run, second_run], "metric": "recall@k"},
+        )
+        leaderboard_response = client.get("/v1/reports/leaderboard?metric=recall@k&limit=5")
+
+    assert compare_response.status_code == 200
+    compare_payload = compare_response.json()
+    assert compare_payload["winner"]["run_id"] == second_run
+    assert len(compare_payload["runs"]) == 2
+
+    assert leaderboard_response.status_code == 200
+    leaderboard_payload = leaderboard_response.json()
+    assert leaderboard_payload["items"][0]["run_id"] == second_run

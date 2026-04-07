@@ -30,6 +30,7 @@ def get_platform_repository(request: Request) -> Generator[PlatformRepository, N
             raise HTTPException(status_code=403, detail=str(exc)) from exc
 
         request.state.auth_context = auth_context
+        request.state.workspace_id = auth_context.workspace_id
         yield PlatformRepository(session, request.app.state.settings, auth_context)
     finally:
         session.close()

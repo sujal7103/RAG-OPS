@@ -64,6 +64,14 @@ class RunCreateRequest(BaseModel):
 
     dataset_version_id: str
     benchmark_config_id: str
+    credential_bindings: dict[str, str] = Field(default_factory=dict)
+
+
+class RunCompareRequest(BaseModel):
+    """Compare multiple historical runs."""
+
+    run_ids: list[str] = Field(..., min_length=2)
+    metric: str = Field("recall@k", min_length=1)
 
 
 def _attach_live_progress(
@@ -177,12 +185,15 @@ def create_run(payload: RunCreateRequest, repo: PlatformRepository = Depends(get
         run_payload = repo.create_run(
             dataset_version_id=payload.dataset_version_id,
             benchmark_config_id=payload.benchmark_config_id,
+            credential_bindings=payload.credential_bindings,
         )
         queue_backend = enqueue_benchmark_run(str(run_payload["id"]), repo.settings)
         run_payload["queue_backend"] = queue_backend
         return run_payload
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/runs/{run_id}")
@@ -222,3 +233,30 @@ def get_run_artifacts(run_id: str, repo: PlatformRepository = Depends(get_platfo
         return repo.list_run_artifacts(run_id)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/runs/compare")
+def compare_runs(
+    payload: RunCompareRequest,
+    repo: PlatformRepository = Depends(get_platform_repository),
+):
+    """Compare persisted results across multiple runs."""
+    try:
+        return repo.compare_runs(payload.run_ids, metric=payload.metric)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/reports/leaderboard")
+def get_workspace_leaderboard(
+    metric: str = "recall@k",
+    limit: int = 20,
+    repo: PlatformRepository = Depends(get_platform_repository),
+):
+    """Return the top historical benchmark rows for the active workspace."""
+    try:
+        return repo.get_workspace_leaderboard(metric=metric, limit=limit)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

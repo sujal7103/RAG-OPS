@@ -28,7 +28,7 @@ from rag_ops.db.models import (
 )
 from rag_ops.models import BenchmarkArtifacts, Document, Query, normalize_documents, normalize_ground_truth, normalize_queries
 from rag_ops.security.auth import AuthContext, role_satisfies
-from rag_ops.security.credentials import encrypt_secret
+from rag_ops.security.credentials import decrypt_secret, encrypt_secret
 from rag_ops.settings import ServiceSettings
 
 
@@ -45,8 +45,32 @@ def fingerprint_config(config_json: dict[str, Any]) -> str:
     return hashlib.sha256(_stable_payload(config_json).encode("utf-8")).hexdigest()[:16]
 
 
+SUPPORTED_CREDENTIAL_PROVIDERS = {"openai", "cohere"}
+SUPPORTED_REPORT_METRICS = {
+    "precision@k",
+    "recall@k",
+    "mrr",
+    "ndcg@k",
+    "map@k",
+    "hit_rate@k",
+    "latency_ms",
+}
+
+
 def _config_label_from_row(row: dict[str, Any]) -> str:
     return f"{row.get('chunker', '')} + {row.get('embedder', '')} + {row.get('retriever', '')}"
+
+
+def _metric_value(item: dict[str, Any], metric: str) -> float:
+    raw_value = item.get(metric, 0.0)
+    try:
+        return float(raw_value or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _metric_descending(metric: str) -> bool:
+    return metric != "latency_ms"
 
 
 def _artifact_entries(artifact: BenchmarkArtifacts) -> list[tuple[str, str, str]]:
@@ -284,7 +308,13 @@ class PlatformRepository:
             raise LookupError(f"Config {config_id} not found")
         return self._serialize_config(config)
 
-    def create_run(self, *, dataset_version_id: str, benchmark_config_id: str) -> dict[str, Any]:
+    def create_run(
+        self,
+        *,
+        dataset_version_id: str,
+        benchmark_config_id: str,
+        credential_bindings: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
         """Create a queued benchmark run."""
         workspace = self.get_workspace()
         dataset_version = self.session.execute(
@@ -307,11 +337,17 @@ class PlatformRepository:
         if config is None:
             raise LookupError(f"Config {benchmark_config_id} not found")
 
+        normalized_bindings = self._validate_credential_bindings(
+            workspace.id,
+            credential_bindings or {},
+        )
         run = BenchmarkRunModel(
             workspace_id=workspace.id,
             dataset_version_id=dataset_version.id,
             benchmark_config_id=config.id,
             status="queued",
+            credential_bindings_json=normalized_bindings,
+            attempt_count=0,
             latest_stage="queued",
             latest_progress_pct=0,
         )
@@ -325,6 +361,7 @@ class PlatformRepository:
             metadata={
                 "dataset_version_id": dataset_version.id,
                 "benchmark_config_id": config.id,
+                "credential_bindings": normalized_bindings,
             },
         )
         self.session.commit()
@@ -377,12 +414,16 @@ class PlatformRepository:
                 for query in dataset_version.queries
             }
         )
+        api_keys = self._resolve_bound_api_keys(run.workspace_id, dict(run.credential_bindings_json or {}))
         return {
             "run_id": run.id,
+            "workspace_id": run.workspace_id,
             "documents": documents,
             "queries": queries,
             "ground_truth": ground_truth,
             "config": dict(run.benchmark_config.config_json),
+            "api_keys": api_keys,
+            "credential_bindings": dict(run.credential_bindings_json or {}),
         }
 
     def update_run_progress(self, run_id: str, *, progress_pct: int, stage: str) -> dict[str, Any]:
@@ -394,15 +435,34 @@ class PlatformRepository:
         self.session.refresh(run)
         return self._serialize_run(run)
 
-    def mark_run_running(self, run_id: str) -> dict[str, Any]:
+    def mark_run_running(self, run_id: str, *, attempt_count: int | None = None) -> dict[str, Any]:
         """Transition a run to running."""
         run = self._get_run_model(run_id, enforce_workspace=self.auth_context is not None)
         run.status = "running"
+        if attempt_count is not None:
+            run.attempt_count = attempt_count
         run.started_at = datetime.now(timezone.utc)
         if run.latest_progress_pct == 0:
             run.latest_progress_pct = 1
         if run.latest_stage == "queued":
             run.latest_stage = "starting"
+        self.session.commit()
+        self.session.refresh(run)
+        return self._serialize_run(run)
+
+    def mark_run_retrying(
+        self,
+        run_id: str,
+        *,
+        attempt_count: int,
+        error_summary: str,
+    ) -> dict[str, Any]:
+        """Persist an intermediate retrying state for a run."""
+        run = self._get_run_model(run_id, enforce_workspace=self.auth_context is not None)
+        run.status = "retrying"
+        run.attempt_count = attempt_count
+        run.error_summary = error_summary
+        run.latest_stage = f"retrying attempt {attempt_count + 1}"
         self.session.commit()
         self.session.refresh(run)
         return self._serialize_run(run)
@@ -533,6 +593,93 @@ class PlatformRepository:
             "run_id": run.id,
             "items": items,
             "bundle": _artifact_bundle(items),
+        }
+
+    def compare_runs(self, run_ids: Sequence[str], *, metric: str) -> dict[str, Any]:
+        """Compare persisted results across multiple runs."""
+        metric_name = self._validate_report_metric(metric)
+        unique_run_ids = list(dict.fromkeys(run_ids))
+        if len(unique_run_ids) < 2:
+            raise ValueError("At least two distinct run IDs are required for comparison")
+
+        runs = [self._serialize_run(self._get_run_model(run_id)) for run_id in unique_run_ids]
+        aggregate_rows = self.session.execute(
+            select(BenchmarkResultAggregateModel)
+            .join(BenchmarkRunModel)
+            .where(
+                BenchmarkRunModel.workspace_id == self.get_workspace().id,
+                BenchmarkResultAggregateModel.benchmark_run_id.in_(unique_run_ids),
+            )
+        ).scalars()
+
+        items: list[dict[str, Any]] = []
+        best_by_run: dict[str, dict[str, Any] | None] = {run_id: None for run_id in unique_run_ids}
+        descending = _metric_descending(metric_name)
+        for row in aggregate_rows:
+            payload = self._serialize_aggregate_result(row)
+            payload["run_id"] = row.benchmark_run_id
+            payload["metric_value"] = _metric_value(payload, metric_name)
+            items.append(payload)
+            current_best = best_by_run.get(row.benchmark_run_id)
+            if current_best is None or (
+                descending and payload["metric_value"] > float(current_best["metric_value"])
+            ) or (
+                not descending and payload["metric_value"] < float(current_best["metric_value"])
+            ):
+                best_by_run[row.benchmark_run_id] = payload
+
+        winner = None
+        populated_best = [item for item in best_by_run.values() if item is not None]
+        if populated_best:
+            winner = sorted(
+                populated_best,
+                key=lambda item: float(item["metric_value"]),
+                reverse=descending,
+            )[0]
+
+        return {
+            "metric": metric_name,
+            "runs": runs,
+            "items": sorted(
+                items,
+                key=lambda item: float(item["metric_value"]),
+                reverse=descending,
+            ),
+            "best_by_run": best_by_run,
+            "winner": winner,
+        }
+
+    def get_workspace_leaderboard(self, *, metric: str, limit: int = 20) -> dict[str, Any]:
+        """Return a workspace-wide leaderboard across historical benchmark rows."""
+        metric_name = self._validate_report_metric(metric)
+        limit = max(1, min(int(limit), 100))
+        rows = self.session.execute(
+            select(BenchmarkResultAggregateModel, BenchmarkRunModel)
+            .join(BenchmarkRunModel, BenchmarkRunModel.id == BenchmarkResultAggregateModel.benchmark_run_id)
+            .where(
+                BenchmarkRunModel.workspace_id == self.get_workspace().id,
+                BenchmarkRunModel.status == "completed",
+            )
+        ).all()
+
+        items: list[dict[str, Any]] = []
+        for aggregate, run in rows:
+            payload = self._serialize_aggregate_result(aggregate)
+            payload["run_id"] = run.id
+            payload["dataset_version_id"] = run.dataset_version_id
+            payload["run_created_at"] = _serialize_datetime(run.created_at)
+            payload["metric_value"] = _metric_value(payload, metric_name)
+            items.append(payload)
+
+        ranked = sorted(
+            items,
+            key=lambda item: float(item["metric_value"]),
+            reverse=_metric_descending(metric_name),
+        )[:limit]
+        return {
+            "metric": metric_name,
+            "limit": limit,
+            "items": ranked,
         }
 
     def fail_run(self, run_id: str, error_summary: str) -> dict[str, Any]:
@@ -667,6 +814,60 @@ class PlatformRepository:
         )
         self.session.commit()
 
+    def _validate_credential_bindings(
+        self,
+        workspace_id: str,
+        credential_bindings: dict[str, str],
+    ) -> dict[str, str]:
+        normalized: dict[str, str] = {}
+        if not credential_bindings:
+            return normalized
+
+        for provider_name, credential_id in credential_bindings.items():
+            provider = str(provider_name).strip().lower()
+            if provider not in SUPPORTED_CREDENTIAL_PROVIDERS:
+                raise ValueError(f"Unsupported credential provider: {provider_name}")
+            credential = self.session.execute(
+                select(ProviderCredentialModel).where(
+                    ProviderCredentialModel.workspace_id == workspace_id,
+                    ProviderCredentialModel.id == str(credential_id),
+                    ProviderCredentialModel.deleted_at.is_(None),
+                )
+            ).scalar_one_or_none()
+            if credential is None:
+                raise LookupError(f"Provider credential {credential_id} not found")
+            if credential.provider != provider:
+                raise ValueError(
+                    f"Credential {credential_id} does not match provider {provider}"
+                )
+            normalized[provider] = credential.id
+        return normalized
+
+    def _resolve_bound_api_keys(
+        self,
+        workspace_id: str,
+        credential_bindings: dict[str, str],
+    ) -> dict[str, str]:
+        api_keys: dict[str, str] = {}
+        for provider, credential_id in credential_bindings.items():
+            credential = self.session.execute(
+                select(ProviderCredentialModel).where(
+                    ProviderCredentialModel.workspace_id == workspace_id,
+                    ProviderCredentialModel.id == credential_id,
+                    ProviderCredentialModel.deleted_at.is_(None),
+                )
+            ).scalar_one_or_none()
+            if credential is None:
+                raise LookupError(f"Provider credential {credential_id} not found")
+            api_keys[provider] = decrypt_secret(credential.ciphertext, self.settings.credential_key)
+        return api_keys
+
+    def _validate_report_metric(self, metric: str) -> str:
+        metric_name = str(metric).strip()
+        if metric_name not in SUPPORTED_REPORT_METRICS:
+            raise ValueError(f"Unsupported report metric: {metric}")
+        return metric_name
+
     def _record_audit_event(
         self,
         *,
@@ -756,6 +957,8 @@ class PlatformRepository:
             "dataset_version_id": run.dataset_version_id,
             "benchmark_config_id": run.benchmark_config_id,
             "status": run.status,
+            "credential_bindings": dict(run.credential_bindings_json or {}),
+            "attempt_count": run.attempt_count,
             "latest_stage": run.latest_stage,
             "latest_progress_pct": run.latest_progress_pct,
             "error_summary": run.error_summary,
