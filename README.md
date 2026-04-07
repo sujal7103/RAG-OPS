@@ -7,6 +7,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3.9%2B-blue?style=flat-square&logo=python" />
   <img src="https://img.shields.io/badge/Streamlit-1.28%2B-FF4B4B?style=flat-square&logo=streamlit" />
+  <img src="https://img.shields.io/badge/FastAPI-Service%20Layer-009688?style=flat-square&logo=fastapi" />
   <img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" />
   <img src="https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square" />
 </p>
@@ -15,17 +16,17 @@
 
 ---
 
-RAG-OPS is an open-source evaluation toolkit that benchmarks every combination of chunking strategies, embedding models, and retrieval methods against your documents — and visualizes the results in a clean dashboard. No boilerplate, no notebooks, no guesswork.
+RAG-OPS is an open-source retrieval evaluation platform for RAG teams. It benchmarks every combination of chunking strategies, embedding models, and retrieval methods against your documents, then shows the winner in a Streamlit-first admin UI with persisted runs, history, and reporting.
 
-> Most RAG teams pick chunking and embedding settings once and never revisit them. This tool makes it trivial to find out if that was the right call.
+> Most RAG teams pick chunking and embedding settings once and never revisit them. RAG-OPS makes that decision measurable.
 
 ---
 
 ## What it does
 
-You give it documents and queries with ground-truth labels. It runs every combination you configure and tells you which one wins — with Recall@K, Precision@K, MRR, NDCG, MAP, and Hit Rate.
+You give it documents and queries with ground-truth labels. It runs every combination you configure and tells you which one wins with Recall@K, Precision@K, MRR, NDCG, MAP, and Hit Rate.
 
-```
+```text
 Fixed Size  ─┐
 Recursive   ─┤  × MiniLM ─┐          ┌─ Dense (FAISS)
 Semantic    ─┤    BGE    ─┤  → eval  ─┤  Sparse (BM25)
@@ -39,14 +40,29 @@ Doc-Aware  ─┘  OpenAI  ─┘          └─ Hybrid (RRF)
 
 | | |
 |---|---|
-| **4 Chunking Strategies** | Fixed Size, Recursive, Semantic (sentence similarity), Document-Aware (markdown/code) |
-| **5 Embedding Models** | MiniLM, BGE Small (local/free), OpenAI Small, OpenAI Large, Cohere |
-| **3 Retrieval Methods** | Dense (FAISS cosine), Sparse (BM25), Hybrid (Reciprocal Rank Fusion) |
+| **4 Chunking Strategies** | Fixed Size, Recursive, Semantic, Document-Aware |
+| **5 Embedding Models** | MiniLM, BGE Small, OpenAI Small, OpenAI Large, Cohere |
+| **3 Retrieval Methods** | Dense, Sparse, Hybrid |
 | **6 IR Metrics** | Precision@K, Recall@K, MRR, NDCG@K, MAP@K, Hit Rate@K |
-| **Visual Dashboard** | Leaderboard, heatmaps, ranked charts, per-query drill-down |
-| **Sample Data** | 10 Python tutorial docs + 15 queries — run a demo in 30 seconds |
-| **Export** | Download results as CSV or JSON |
-| **Operational Features** | Disk cache, saved run artifacts, CLI entrypoint, Dockerfile, CI workflow, Prometheus metrics |
+| **Streamlit Admin UI** | Guided load → configure → run → results workflow |
+| **API + Worker Foundation** | FastAPI service, async worker, persisted runs, comparison APIs |
+| **Saved History** | Run artifacts, per-query drill-down, workspace leaderboard |
+| **Operational Features** | Disk cache, object-store artifact path, Docker Compose, Prometheus/Grafana |
+
+---
+
+## Architecture At A Glance
+
+RAG-OPS is no longer just a single Streamlit script. The current repo is organized around a Streamlit-first product surface backed by a service platform:
+
+- `Streamlit admin UI` for dataset loading, benchmark setup, results, credentials, and historical reports
+- `FastAPI API` for datasets, configs, runs, credentials, and reporting
+- `worker` for async benchmark execution
+- `Postgres` for persisted metadata
+- `Redis` for queue/run-state coordination
+- `object storage` for artifact persistence
+
+You can still run the Streamlit UI locally by itself, but the production-shaped path is the multi-service stack.
 
 ---
 
@@ -55,62 +71,58 @@ Doc-Aware  ─┘  OpenAI  ─┘          └─ Hybrid (RRF)
 ### 1. Clone the repo
 
 ```bash
-git clone https://github.com/sausi-7/rag-ops.git
-cd rag-ops
+git clone https://github.com/sujal7103/RAG-OPS.git
+cd RAG-OPS
 ```
 
 ### 2. Create and activate a virtual environment
 
 ```bash
-# Create venv
 python3 -m venv .venv
-
-# Activate — macOS/Linux
 source .venv/bin/activate
-
-# Activate — Windows (PowerShell)
-.venv\Scripts\Activate.ps1
 ```
 
 ### 3. Install dependencies
 
-For running the app:
+For normal usage:
 
 ```bash
 pip install .
 ```
 
-For development (includes pytest, ruff):
+For development:
 
 ```bash
 pip install -e ".[dev]"
 ```
 
-### 4. Run the app
+### 4. Run the Streamlit UI
 
 ```bash
 streamlit run app.py
 ```
 
-Then open the browser, click **Load Sample Data**, select your strategies, and hit **Run Benchmark**.
+Then open the browser, load sample data, choose your strategies, and run the benchmark.
 
-**Requirements:** Python 3.9+. Local embeddings (MiniLM, BGE) run on CPU — no GPU needed. API keys for OpenAI/Cohere are entered in the sidebar.
+**Requirements:** Python 3.9+. Local embeddings run on CPU. OpenAI and Cohere models require provider credentials or API keys depending on mode.
 
-To run the Streamlit UI against the API service instead of local in-process execution:
+### 5. Run against the API service
+
+To keep Streamlit as the UI while using the service layer underneath:
 
 ```bash
 RAG_OPS_API_BASE_URL=http://localhost:8000 streamlit run app.py
 ```
 
-In API-backed mode, datasets/configs/runs are created through the service layer and the UI polls run progress from the API.
+In API-backed mode, datasets, configs, runs, artifacts, and reports flow through the FastAPI service instead of only local in-process execution.
 
-### 5. Run from the CLI
+### 6. Run from the CLI
 
 ```bash
 rag-ops --sample
 ```
 
-Or run against local files:
+Or against local files:
 
 ```bash
 rag-ops \
@@ -121,43 +133,35 @@ rag-ops \
   --retrievers Dense Sparse
 ```
 
-By default, cached chunks and embeddings are stored in `.rag_ops_cache/`, and saved run artifacts are written to `.rag_ops_runs/`.
+### 7. Run the service foundation
 
-### 6. Run the service foundation
-
-RAG-OPS now also includes a service-platform foundation for the upcoming API-first architecture:
+Start the API:
 
 ```bash
 rag-ops-api
 ```
 
-and a worker scaffold:
+Start the worker in another terminal:
 
 ```bash
 rag-ops-worker
 ```
 
-For local multi-service development:
+Or bring up the local multi-service stack:
 
 ```bash
 docker compose up --build
 ```
 
-The platform stack expects a local `.env` file for infrastructure credentials such as Postgres and MinIO.
-The persistence layer now stores datasets, benchmark configs, and run metadata in SQLAlchemy-backed tables, with Alembic scaffolding ready for managed migrations.
-Async run execution now supports queued benchmark runs, progress tracking, and cancellation through the service API, with a local thread fallback and a Dramatiq path for hosted environments.
-The Streamlit admin UI can now run in API-backed mode via `RAG_OPS_API_BASE_URL`, persisting datasets/configs/runs through the API and loading completed run artifacts from shared run storage.
-Completed runs now persist aggregate results, per-query details, and artifact metadata through the API as first-class run resources.
-The service layer now also supports OIDC/JWKS auth mode, credential key rotation, workspace-bound provider credentials for run execution, and historical comparison/leaderboard APIs.
-For containerized staging/production setup guidance, see [DEPLOYMENT.md](DEPLOYMENT.md).
+For containerized staging or production guidance, see [DEPLOYMENT.md](DEPLOYMENT.md).
 
 ---
 
-## Using your own data
+## Using Your Own Data
 
-**Documents** — upload `.txt` or `.md` files. Each file = one document. The filename (without extension) becomes the `doc_id`.
+**Documents**: upload `.txt` or `.md` files. Each file becomes one document and the filename without extension becomes the `doc_id`.
 
-**Queries** — upload a JSON file:
+**Queries**: upload a JSON file like this:
 
 ```json
 [
@@ -169,86 +173,85 @@ For containerized staging/production setup guidance, see [DEPLOYMENT.md](DEPLOYM
 ]
 ```
 
-`relevant_doc_ids` must match document filenames (without extension). These are your ground-truth labels — the tool measures how well each pipeline retrieves them.
+`relevant_doc_ids` must match your document filenames without extension. These labels are the ground truth used during evaluation.
 
 ---
 
-## Dashboard tabs
+## Streamlit Workflow
 
-![Results Dashboard](screenshots/data.png)
+The current primary UI is still Streamlit-first:
 
-| Tab | What it shows |
-|-----|---------------|
-| **Leaderboard** | All combinations ranked by Recall@K with color-coded metric columns |
-| **Heatmaps** | Chunker × Embedder performance matrix, one heatmap per retrieval method |
-| **Charts** | Ranked bar chart of all configs, multi-metric comparison, radar profile of best config |
-| **Per-Query Details** | Hit/miss breakdown for each query on a selected configuration |
+1. Load sample data or upload your own corpus
+2. Configure chunkers, embedders, retrievers, and `top_k` from the sidebar
+3. Run the benchmark locally or through the API-backed worker path
+4. Inspect leaderboard, heatmaps, charts, per-query details, and historical reports
+
+The Streamlit UI also supports API-backed credential management and workspace reporting when `RAG_OPS_API_BASE_URL` is configured.
 
 ---
 
-## Project structure
+## Project Structure
 
-```
-rag-ops/
+```text
+RAG-OPS/
 ├── app.py                          # Thin Streamlit entrypoint
-├── alembic/                        # Migration scaffold for service schema
-├── alembic.ini                     # Alembic configuration
-├── docker-compose.yml              # Local multi-service platform topology
-├── pyproject.toml                  # Package config, scripts, and test settings
-├── Dockerfile                      # Containerized runtime
+├── alembic/                        # Database migrations
+├── docker-compose.yml              # Local multi-service topology
+├── Dockerfile                      # Python application image
+├── monitoring/                     # Prometheus and Grafana config
+├── pyproject.toml                  # Package metadata and CLI scripts
 ├── src/rag_ops/
-│   ├── api/                        # FastAPI application and middleware
+│   ├── api/                        # FastAPI app, routes, dependencies, middleware
+│   ├── cache.py                    # Disk cache helpers
+│   ├── chunkers.py                 # Retrieval chunking strategies
 │   ├── cli.py                      # CLI benchmark entrypoint
-│   ├── data_loading.py             # Sample, uploaded, and local file loading
-│   ├── db/                         # SQLAlchemy engine and persistence helpers
-│   ├── models.py                   # Typed dataclasses
-│   ├── observability.py            # Request IDs and structured logging
-│   ├── object_store.py             # S3-compatible artifact uploads
-│   ├── redis_client.py             # Thin Redis wrapper
+│   ├── data_loading.py             # Sample and uploaded data handling
+│   ├── db/                         # SQLAlchemy models, session, bootstrap
+│   ├── embedders.py                # Embedding model integrations
+│   ├── experiment_store.py         # Run artifact persistence helpers
+│   ├── metrics.py                  # Retrieval evaluation metrics
+│   ├── object_store.py             # S3-compatible artifact storage
+│   ├── observability.py            # Logging and request context
+│   ├── redis_client.py             # Redis helper layer
 │   ├── repositories/               # Persistence repositories
-│   ├── metrics_server.py           # Worker metrics endpoint
-│   ├── cache.py                    # Disk caching helpers
-│   ├── experiment_store.py         # Saved run artifacts
-│   ├── chunkers.py                 # 4 chunking strategies
-│   ├── embedders.py                # 5 embedding models
-│   ├── retrievers.py               # 3 retrieval methods
-│   ├── metrics.py                  # 6 evaluation metrics
+│   ├── results_frame.py            # Result-frame helpers
+│   ├── retrievers.py               # Retrieval implementations
 │   ├── runner.py                   # Benchmark orchestration
-│   ├── services/                   # Platform service helpers
-│   ├── validation.py               # Input and config validation
+│   ├── security/                   # Auth and credential encryption
+│   ├── services/                   # Run execution, runtime, health services
+│   ├── settings.py                 # App and service settings
 │   ├── ui/                         # Streamlit UI modules
-│   ├── workers/                    # Async worker entrypoints
-│   │   ├── app.py                  # Main UI orchestration
-│   │   ├── sidebar.py              # Sidebar config controls
-│   │   ├── data_views.py           # Data loading and preview
-│   │   ├── results.py              # Result rendering
-│   │   └── styles.py               # Shared page styling
-│   └── sample_data/                # Built-in demo corpus
-│       ├── corpus/                 # 10 .txt documents
-│       └── queries.json            # 15 queries with ground truth
-├── tests/                          # Pytest test suite
-├── monitoring/                     # Prometheus + Grafana local provisioning
-└── .github/workflows/ci.yml        # CI pipeline
+│   ├── validation.py               # Input/config validation
+│   └── workers/                    # Async worker entrypoints
+├── tests/                          # Pytest suite
+└── screenshots/                    # README images
 ```
 
-For architecture details, implementation notes, and how to extend the system, see [README_TECHNICAL.md](README_TECHNICAL.md).
+For implementation details and extension guidance, see [README_TECHNICAL.md](README_TECHNICAL.md).
 
 ---
 
-## Running tests
+## Testing
 
 ```bash
-# Make sure dev dependencies are installed
 pip install -e ".[dev]"
-
-pytest tests/
+pytest -q
+python3 -m compileall app.py src tests alembic monitoring
 ```
+
+---
+
+## Deployment Note
+
+The current production-shaped deployment target is a full multi-service host, not Vercel. RAG-OPS relies on a long-running Streamlit UI, API service, async worker, and supporting stateful infrastructure such as Postgres, Redis, and object storage.
+
+If you want to deploy the current stack, use Docker-based hosting such as Render, Railway, Fly, a VPS, or another platform that supports long-running Python services.
 
 ---
 
 ## Contributing
 
-We welcome contributions — new chunkers, embedders, retrieval methods, metrics, UI improvements, and more. See [CONTRIBUTING.md](CONTRIBUTING.md) to get started.
+Contributions are welcome across retrieval logic, evaluation, docs, tests, operations, and UI polish. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
 

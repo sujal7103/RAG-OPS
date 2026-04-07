@@ -1,16 +1,24 @@
 # RAG-OPS Deployment Guide
 
-## Production shape
+## Production Shape
 
-RAG-OPS now supports a practical production-style topology:
+RAG-OPS is currently designed to run as a multi-service Python stack:
 
+- `admin-ui` for the Streamlit admin console
 - `api` for FastAPI routes and metrics
 - `worker` for async benchmark execution
-- `admin-ui` for the Streamlit admin console
 - `postgres` as the system of record
 - `redis` for queue and run-state coordination
 - `minio` or another S3-compatible store for artifact persistence
 - `prometheus` and `grafana` for monitoring
+
+This is the supported deployment direction for the current architecture.
+
+## Important Hosting Note
+
+Vercel is not the primary deployment target for the current RAG-OPS stack. The current product shape depends on a long-running Streamlit UI, a long-running worker process, and stateful infrastructure such as Postgres, Redis, and object storage.
+
+Use Docker-based multi-service hosting such as Render, Railway, Fly, a VPS, or another platform that supports long-running Python services.
 
 ## Authentication
 
@@ -36,7 +44,7 @@ Those can be changed with:
 - `RAG_OPS_AUTH_JWT_WORKSPACE_CLAIM`
 - `RAG_OPS_AUTH_JWT_ROLE_CLAIM`
 
-## Credential key rotation
+## Credential Key Rotation
 
 Provider credentials are encrypted with the active key from the keyring.
 
@@ -54,7 +62,7 @@ Rotation flow:
 
 ## Artifacts
 
-Set these to move run artifacts into object storage:
+To move run artifacts into object storage:
 
 - `RAG_OPS_OBJECT_STORE_ENABLED=true`
 - `RAG_OPS_OBJECT_STORE_ENDPOINT=...`
@@ -62,11 +70,11 @@ Set these to move run artifacts into object storage:
 - `RAG_OPS_OBJECT_STORE_ACCESS_KEY=...`
 - `RAG_OPS_OBJECT_STORE_SECRET_KEY=...`
 
-Completed runs still produce local files first, then the worker uploads the artifact bundle and persists `s3://...` URIs.
+Completed runs still produce local files first, then the worker uploads the artifact bundle and persists object-store URIs.
 
 ## Monitoring
 
-Bring the stack up with:
+Bring the local stack up with:
 
 ```bash
 docker compose --env-file .env.staging.example up --build
@@ -87,22 +95,22 @@ Back up these components:
 
 - Postgres volume
 - MinIO or S3 bucket
-- `.env` or secret manager values
+- `.env` or secret-manager values
 - credential keyring values used in `RAG_OPS_CREDENTIAL_KEYS_JSON`
 
 Suggested cadence:
 
-- Postgres daily snapshot
+- daily Postgres snapshot
 - object-store versioning enabled
-- config/secrets backup on every rotation
+- config and secrets backup on every rotation
 
-## Smoke checks
+## Smoke Checks
 
 Run these before promoting a release:
 
 ```bash
 pytest -q
-python3 -m compileall app.py src tests alembic
+python3 -m compileall app.py src tests alembic monitoring
 ```
 
 After deployment:
